@@ -17,7 +17,7 @@ cd mkbtv
 ./gradlew :app:assembleFullDebug
 ```
 
-The mkbtv launcher is in the `fullDebug` variant. Gradle writes the APKs under `app/build/outputs/apk/full/debug/`. Choose the APK for your TV’s CPU architecture or the universal APK. For cloud login and optional provider integrations, use your own settings in `local.properties`. Available property names are listed in [the example configuration](local.example.properties).
+The mkbtv launcher is in the `fullDebug` variant. Gradle writes the APKs under `app/build/outputs/apk/full/debug/`. Choose the APK for your TV’s CPU architecture or the universal APK. A fresh checkout uses the Android SDK’s local debug signing key. To update an existing installation, supply the keystore that signed it. For cloud login and optional provider integrations, use your own settings in `local.properties`. Available property names are listed in [the example configuration](local.example.properties).
 
 ## Run the optional services
 

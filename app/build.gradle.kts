@@ -224,7 +224,9 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseStoreFilePath != null || rootProject.file("nuviotv.jks").isFile) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isDebuggable = parseBooleanProperty(providers.gradleProperty("debuggable").orNull)
             isMinifyEnabled = false
 

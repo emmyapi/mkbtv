@@ -7,6 +7,9 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +56,9 @@ class WatchedSeriesStateHolder @Inject constructor(
     private var loadedForProfileId: Int? = null
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) = factory.get(profileId, FEATURE)
+
+    fun observeForProfile(profileId: Int): Flow<Set<String>> =
+        store(profileId).data.map { it[KEY].orEmpty() }.distinctUntilChanged()
 
     suspend fun loadFromDisk(profileId: Int = profileManager.activeProfileId.value) {
         if (loadedForProfileId == profileId) return

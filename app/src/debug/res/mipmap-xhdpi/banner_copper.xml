@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/mkbtv_wordmark" />
+    <item android:drawable="@mipmap/ic_launcher_copper" android:gravity="left|center_vertical"
+        android:left="22dp" android:width="36dp" android:height="36dp" />
+</layer-list>

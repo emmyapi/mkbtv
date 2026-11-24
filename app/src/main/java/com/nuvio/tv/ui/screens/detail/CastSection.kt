@@ -8,11 +8,14 @@ import com.nuvio.tv.ui.util.contentTextDirection
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import com.nuvio.tv.R
 import androidx.compose.foundation.layout.Arrangement
@@ -45,7 +48,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
@@ -72,26 +75,27 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaCastMember
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun CastSection(
     cast: List<MetaCastMember>,
     listState: LazyListState,
+    title: String,
     modifier: Modifier = Modifier,
-    title: String = "Cast",
     leadingCast: List<MetaCastMember> = emptyList(),
     upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
-    restorePersonId: Int? = null,
+    restorePersonKey: String? = null,
     restoreFocusToken: Int = 0,
     blockDefaultRestore: Boolean = false,
     lastFocusedPersonKey: String? = null,
     onLastFocusedPersonKeyChange: (String) -> Unit = {},
     onRestoreFocusHandled: () -> Unit = {},
     onCastMemberFocused: (MetaCastMember) -> Unit = {},
-    onCastMemberClick: (MetaCastMember) -> Unit = {},
+    onCastMemberClick: (MetaCastMember, String) -> Unit = { _, _ -> },
     windowResetKey: String? = null
 ) {
     if (cast.isEmpty() && leadingCast.isEmpty()) return
@@ -103,33 +107,13 @@ fun CastSection(
         resetKey = windowResetKey
     )
 
-    val firstItemFocusRequester = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    var restoreTargetRequester by remember { mutableStateOf(firstItemFocusRequester) }
-    val lastFocusedRequester = remember(lastFocusedPersonKey, leadingCast, cast) {
-        resolveCastFocusRequester(
-            key = lastFocusedPersonKey,
-            leadingCast = leadingCast,
-            cast = cast,
-            firstItemFocusRequester = firstItemFocusRequester,
-            itemFocusRequesters = itemFocusRequesters
-        )
+    fun requesterFor(key: String) = itemFocusRequesters.getOrPut(key) { FocusRequester() }
+    LaunchedEffect(castIds) {
+        itemFocusRequesters.keys.retainAll(castIds.toSet())
     }
 
-    LaunchedEffect(cast, leadingCast) {
-        val validKeys = buildSet {
-            leadingCast.forEach { member ->
-                add("leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}")
-            }
-            cast.forEach { member ->
-                add("cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}")
-            }
-        }
-        itemFocusRequesters.keys.retainAll(validKeys)
-    }
-
-    // Track whether a restore is pending so focusRestorer can use the correct fallback
-    var restorePending by remember { mutableStateOf(false) }
     var holdRestoreScrollSuppress by remember { mutableStateOf(false) }
     var holdEnterRowScrollSuppress by remember { mutableStateOf(false) }
     var enterRowHoldToken by remember { mutableIntStateOf(0) }
@@ -138,7 +122,7 @@ fun CastSection(
     val view = LocalView.current
     val suppressRestoreScroll = holdRestoreScrollSuppress ||
         holdEnterRowScrollSuppress ||
-        (restoreFocusToken > 0 && restorePersonId != null)
+        (restoreFocusToken > 0 && restorePersonKey != null)
     val restoreNoScrollResponder = remember {
         object : BringIntoViewResponder {
             override fun calculateRectForParent(localRect: Rect): Rect = Rect.Zero
@@ -151,42 +135,19 @@ fun CastSection(
         Modifier
     }
 
-    // Only react to restoreFocusToken changes (triggered on ON_RESUME).
-    // restorePersonId/cast lists are read inside but not used as keys to avoid
-    // triggering scroll at the moment of click (before navigation happens).
+    // The return token is raised only after the person detail closes.
     LaunchedEffect(restoreFocusToken) {
-        if (restoreFocusToken <= 0 || restorePersonId == null) {
-            restorePending = false
-            holdRestoreScrollSuppress = false
-            return@LaunchedEffect
-        }
-        val leadingIndex = leadingCast.indexOfFirst { it.tmdbId == restorePersonId }
-        val castIndex = cast.indexOfFirst { it.tmdbId == restorePersonId }
-        if (leadingIndex < 0 && castIndex < 0) {
-            restorePending = false
-            holdRestoreScrollSuppress = false
-            return@LaunchedEffect
-        }
-        val targetRequester = when {
-            leadingIndex == 0 -> firstItemFocusRequester
-            leadingIndex >= 0 -> {
-                val member = leadingCast[leadingIndex]
-                val key = "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                itemFocusRequesters.getOrPut(key) { FocusRequester() }
+        if (restoreFocusToken <= 0 || restorePersonKey == null) return@LaunchedEffect
+        val index = castIds.indexOf(restorePersonKey)
+        if (index >= 0) {
+            holdRestoreScrollSuppress = true
+            if (listState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                listState.scrollToItem(index)
             }
-            castIndex == 0 && leadingCast.isEmpty() -> firstItemFocusRequester
-            else -> {
-                val member = cast[castIndex]
-                val key = "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                itemFocusRequesters.getOrPut(key) { FocusRequester() }
-            }
+            requesterFor(restorePersonKey).requestFocusAfterFrames()
+            repeat(2) { withFrameNanos { } }
+            holdRestoreScrollSuppress = false
         }
-        restoreTargetRequester = targetRequester
-        restorePending = true
-        holdRestoreScrollSuppress = true
-        targetRequester.requestFocusAfterFrames()
-        repeat(2) { withFrameNanos { } }
-        holdRestoreScrollSuppress = false
         onRestoreFocusHandled()
     }
 
@@ -199,7 +160,6 @@ fun CastSection(
 
     val itemWidth = 150.dp
     val cardSize = 100.dp
-    val hasTitle = title.isNotBlank()
     val currentUpFocusRequester by rememberUpdatedState(upFocusRequester)
     val currentDownFocusRequester by rememberUpdatedState(downFocusRequester)
 
@@ -215,7 +175,7 @@ fun CastSection(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = if (hasTitle) 20.dp else NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm)
+            .padding(top = 20.dp, bottom = NuvioTheme.spacing.sm)
             .onGloballyPositioned { coords ->
                 val bounds = coords.boundsInWindow()
                 val next = bounds.top >= -1f &&
@@ -226,15 +186,15 @@ fun CastSection(
                 }
             }
     ) {
-        if (hasTitle) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = NuvioTheme.colors.TextPrimary,
-                modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxxl)
-            )
-            Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
-        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = NuvioTheme.colors.TextPrimary,
+            modifier = Modifier
+                .padding(horizontal = NuvioTheme.spacing.xxxl)
+                .semantics { heading() }
+        )
+        Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
 
         LazyRow(
             modifier = Modifier
@@ -243,16 +203,33 @@ fun CastSection(
                 .onFocusChanged { state ->
                     val entered = state.hasFocus && !rowHasFocus
                     rowHasFocus = state.hasFocus
-                    if (entered && !restorePending && sectionVerticallyOnScreen) {
+                    if (entered && restorePersonKey == null && sectionVerticallyOnScreen) {
                         holdEnterRowScrollSuppress = true
                         enterRowHoldToken += 1
                     }
                 }
-                .focusRestorer {
-                    when {
-                        restorePending -> restoreTargetRequester
-                        blockDefaultRestore -> FocusRequester.Cancel
-                        else -> lastFocusedRequester
+                .focusProperties {
+                    onEnter = {
+                        if (blockDefaultRestore) {
+                            cancelFocusChange()
+                        } else {
+                            val direction = requestedFocusDirection
+                            val key = restorePersonKey?.takeIf { it in castIds }
+                                ?: lastFocusedPersonKey?.takeIf { direction != FocusDirection.Down && it in castIds }
+                                ?: castIds.first()
+                            val index = castIds.indexOf(key)
+                            val requester = requesterFor(key)
+                            if (listState.layoutInfo.visibleItemsInfo.any { it.index == index }) {
+                                requester.requestFocus()
+                            } else {
+                                // A lazy row may still be scrolled to a person from the last visit.
+                                cancelFocusChange()
+                                scope.launch {
+                                    listState.scrollToItem(index)
+                                    requester.requestFocusAfterFrames(frames = 0, direction = direction)
+                                }
+                            }
+                        }
                     }
                 }
                 .focusGroup(),
@@ -267,34 +244,24 @@ fun CastSection(
                 itemsIndexed(
                     items = leadingCast,
                     key = { index, member -> leadingCastLazyKey(index, member) }
-                ) { index, member ->
+                ) { _, member ->
                     val isLastLeading = member == leadingCast.last()
                     val endPadding = if (isLastLeading && cast.isNotEmpty()) NuvioTheme.spacing.none else standardGap
-                    val isRestoreTarget = member.tmdbId == restorePersonId
-                    val isFirstItem = index == 0
-                    val focusKey = "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                    val focusRequester = if (isFirstItem) {
-                        firstItemFocusRequester
-                    } else {
-                        remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
-                    }
+                    val focusKey = castMemberWindowId(member, leading = true)
 
                     Box(modifier = restoreItemModifier.padding(end = endPadding)) {
                         CastMemberItem(
                             member = member,
                             modifier = Modifier
-                                .focusRequester(focusRequester)
+                                .focusRequester(requesterFor(focusKey))
                                 .then(itemFocusPropertiesModifier),
                             itemWidth = itemWidth,
                             cardSize = cardSize,
                             onFocused = {
                                 onLastFocusedPersonKeyChange(focusKey)
                                 onCastMemberFocused(member)
-                                if (isRestoreTarget && restoreFocusToken > 0) {
-                                    restorePending = false
-                                }
                             },
-                            onClick = { onCastMemberClick(member) }
+                            onClick = { onCastMemberClick(member, focusKey) }
                         )
                     }
                 }
@@ -320,32 +287,22 @@ fun CastSection(
             itemsIndexed(
                 items = cast,
                 key = { index, member -> castMemberLazyKey(index, member) }
-            ) { index, member ->
-                val isRestoreTarget = member.tmdbId == restorePersonId
-                val isFirstCastItem = index == 0 && leadingCast.isEmpty()
-                val focusKey = "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                val focusRequester = if (isFirstCastItem) {
-                    firstItemFocusRequester
-                } else {
-                    remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
-                }
+            ) { _, member ->
+                val focusKey = castMemberWindowId(member, leading = false)
 
                 Box(modifier = restoreItemModifier.padding(end = standardGap)) {
                     CastMemberItem(
                         member = member,
                         modifier = Modifier
-                            .focusRequester(focusRequester)
+                            .focusRequester(requesterFor(focusKey))
                             .then(itemFocusPropertiesModifier),
                         itemWidth = itemWidth,
                         cardSize = cardSize,
                         onFocused = {
                             onLastFocusedPersonKeyChange(focusKey)
                             onCastMemberFocused(member)
-                            if (isRestoreTarget && restoreFocusToken > 0) {
-                                restorePending = false
-                            }
                         },
-                        onClick = { onCastMemberClick(member) }
+                        onClick = { onCastMemberClick(member, focusKey) }
                     )
                 }
             }
@@ -393,34 +350,6 @@ private fun castLazyKeyAt(
             cast.getOrNull(castIndex)?.let { castMemberLazyKey(castIndex, it) }
         }
     }
-}
-
-private fun resolveCastFocusRequester(
-    key: String?,
-    leadingCast: List<MetaCastMember>,
-    cast: List<MetaCastMember>,
-    firstItemFocusRequester: FocusRequester,
-    itemFocusRequesters: MutableMap<String, FocusRequester>
-): FocusRequester {
-    if (key.isNullOrEmpty()) return firstItemFocusRequester
-    val firstLeadingKey = leadingCast.firstOrNull()?.let { member ->
-        "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-    }
-    val firstCastKey = if (leadingCast.isEmpty()) {
-        cast.firstOrNull()?.let { member ->
-            "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-        }
-    } else {
-        null
-    }
-    if (key == firstLeadingKey || key == firstCastKey) return firstItemFocusRequester
-    val known = leadingCast.any { member ->
-        key == "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-    } || cast.any { member ->
-        key == "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-    }
-    if (!known) return firstItemFocusRequester
-    return itemFocusRequesters.getOrPut(key) { FocusRequester() }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

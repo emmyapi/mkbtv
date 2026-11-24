@@ -3,10 +3,19 @@ package com.nuvio.tv.ui.screens.search
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import com.nuvio.tv.core.poster.withCustomPosterUrl
+import com.nuvio.tv.data.repository.DiscoverFailure
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,19 +34,22 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.withResumed
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -56,8 +68,8 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import com.nuvio.tv.ui.util.contentTextDirection
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -66,12 +78,17 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.EmptyScreenState
@@ -82,7 +99,6 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.components.nuvioCardDepth
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
-import com.nuvio.tv.ui.util.formatAddonTypeLabel
 import com.nuvio.tv.ui.util.localizedContentType
 import com.nuvio.tv.ui.util.localizedGenreLabel
 
@@ -102,128 +118,296 @@ internal fun DiscoverSection(
     onRestoreFocusedItemHandled: () -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onDiscoverItemFocused: (Int) -> Unit,
-    onSelectType: (String) -> Unit,
-    onSelectCatalog: (String) -> Unit,
-    onSelectGenre: (String?) -> Unit,
+    onFilterEvent: (SearchEvent) -> Unit,
     onLoadMore: () -> Unit,
+    resolveArtwork: suspend (MetaPreview) -> MetaPreview?,
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
+    voiceRequest: String? = null,
+    onVoiceRequestHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val selectedCatalog = uiState.discoverCatalogs.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey }
-    val filteredCatalogs = uiState.discoverCatalogs.filter { it.type == uiState.selectedDiscoverType }
-    val genres = selectedCatalog?.genres.orEmpty()
-    var expandedPicker by remember { mutableStateOf<String?>(null) }
     val filterFocusRequester = remember { FocusRequester() }
-    var gridHasFocus by remember { mutableStateOf(false) }
+    val contentFocusRequester = LocalContentFocusRequester.current
+    val sidebarExpanded = LocalSidebarExpanded.current
+    val showingResults = uiState.discoverResults.isNotEmpty() && !uiState.discoverLoading
+    var editingKeyword by remember { mutableStateOf(false) }
+    var gridHasFocus by remember(showingResults) { mutableStateOf(false) }
+    var requestFilterFocus by remember { mutableStateOf(!blockFilterFocus && !sidebarExpanded) }
+    val browsingResults = gridHasFocus && !requestFilterFocus && !sidebarExpanded
+    val controlsVisible = !showingResults || sidebarExpanded || requestFilterFocus ||
+        (!gridHasFocus && !blockFilterFocus)
 
-    androidx.activity.compose.BackHandler(enabled = gridHasFocus) {
-        try { filterFocusRequester.requestFocus() } catch (_: Exception) {}
+    LaunchedEffect(requestFilterFocus, blockFilterFocus, sidebarExpanded) {
+        if (!requestFilterFocus || blockFilterFocus || sidebarExpanded) return@LaunchedEffect
+        filterFocusRequester.requestFocusAfterFrames()
+        requestFilterFocus = false
     }
 
+    androidx.activity.compose.BackHandler(enabled = browsingResults && !blockFilterFocus) {
+        requestFilterFocus = true
+    }
+
+    val (voice, launchVoiceSearch) = rememberVoiceSearch(language = "da-DK") { phrase ->
+        onFilterEvent(SearchEvent.ApplyDiscoverVoiceQuery(phrase))
+    }
+    androidx.activity.compose.BackHandler(enabled = voice.listening && !sidebarExpanded) {
+        voice.stop()
+        if (gridHasFocus) requestFilterFocus = true
+    }
+
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(voiceRequest, lifecycle) {
+        val phrase = voiceRequest ?: return@LaunchedEffect
+        lifecycle.withResumed {
+            onVoiceRequestHandled()
+            editingKeyword = false
+            requestFilterFocus = true
+            if (phrase.isEmpty()) {
+                if (!voice.listening) launchVoiceSearch()
+            } else {
+                voice.stop()
+                onFilterEvent(SearchEvent.ApplyDiscoverVoiceQuery(phrase))
+            }
+        }
+    }
+
+    val anyLabel = stringResource(R.string.discover_filter_any)
     val localContext = LocalContext.current
-    fun localizedTypeLabel(type: String): String = localizedContentType(localContext, type)
+    fun typeLabel(type: String) = if (type == DISCOVER_TYPE_ANY) anyLabel else localizedContentType(localContext, type)
+    val catalogOptions = DiscoverCatalogOption.entries.filter { it.availableFor(uiState.selectedDiscoverType) }
+    val selectedCatalog = catalogOptions.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey } ?: DiscoverCatalogOption.ALL
+    val selectedGenreLabel = uiState.selectedDiscoverGenre?.let { localizedGenreLabel(it) } ?: anyLabel
 
-    val availableTypes = remember(uiState.discoverCatalogs) {
-        uiState.discoverCatalogs.map { it.type }.distinct()
+    if (editingKeyword) {
+        DiscoverKeywordDialog(
+            keyword = uiState.discoverKeyword,
+            onDismiss = { editingKeyword = false },
+            onApply = { keyword ->
+                onFilterEvent(SearchEvent.SetDiscoverKeyword(keyword))
+                editingKeyword = false
+            }
+        )
     }
-    val selectedTypeLabel = localizedTypeLabel(uiState.selectedDiscoverType)
-    val selectedCatalogLabel = selectedCatalog?.catalogName ?: stringResource(R.string.discover_select_catalog)
-    val selectedGenreLabel = uiState.selectedDiscoverGenre?.let { localizedGenreLabel(it) } ?: stringResource(R.string.discover_genre_default)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = NuvioTheme.spacing.xxxl),
-        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+        verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
     ) {
-        Text(
-            text = stringResource(R.string.discover_title),
-            style = MaterialTheme.typography.headlineMedium,
-            color = if (showBuiltInHeader) NuvioTheme.colors.TextPrimary else Color.Transparent
-        )
-
+        // Give the sidebar's floating Discover title its own line, including its icon-only state.
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            modifier = Modifier.heightIn(min = NuvioTheme.sizes.player.control + NuvioTheme.spacing.xxs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
         ) {
-            DiscoverDropdownPicker(
-                modifier = Modifier.weight(1f)
-                    .focusRequester(filterFocusRequester),
-                title = stringResource(R.string.discover_filter_type),
-                value = selectedTypeLabel,
-                selectedValue = uiState.selectedDiscoverType,
-                expanded = expandedPicker == "type",
-                options = availableTypes.map { type ->
-                    val label = localizedTypeLabel(type)
-                    DiscoverOption(label, type)
-                },
-                onExpandedChange = { shouldExpand ->
-                    expandedPicker = if (shouldExpand) "type" else null
-                },
-                onSelect = { option ->
-                    onSelectType(option.value)
-                    expandedPicker = null
-                },
-                blockFocus = blockFilterFocus
-            )
+            if (showBuiltInHeader) {
+                Icon(Icons.Default.Explore, contentDescription = null, tint = NuvioTheme.colors.TextPrimary)
+                Text(
+                    text = stringResource(R.string.mkbtv_discover_name),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = NuvioTheme.colors.TextPrimary
+                )
+            }
+        }
+        if (controlsVisible) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                Button(
+                    onClick = { voice.stop(); editingKeyword = true },
+                    scale = ButtonDefaults.scale(focusedScale = 1f),
+                    modifier = Modifier.weight(1f)
+                        .focusRequester(contentFocusRequester)
+                        .focusRequester(filterFocusRequester)
+                        .focusProperties { canFocus = !blockFilterFocus }
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (uiState.discoverKeyword.isEmpty()) {
+                            stringResource(R.string.discover_add_keyword)
+                        } else {
+                            stringResource(R.string.discover_current_keyword, uiState.discoverKeyword)
+                        },
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (voice.available) {
+                    Button(
+                        onClick = launchVoiceSearch,
+                        modifier = Modifier.focusProperties { canFocus = !blockFilterFocus }
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(if (voice.listening) R.string.discover_voice_listening else R.string.cd_voice_search))
+                    }
+                }
+                Button(
+                    onClick = { voice.stop(); onFilterEvent(SearchEvent.ResetDiscoverFilters) },
+                    modifier = Modifier.focusProperties { canFocus = !blockFilterFocus }
+                ) { Text(stringResource(R.string.discover_reset_filters)) }
+            }
 
-            DiscoverDropdownPicker(
-                modifier = Modifier.weight(1f),
-                title = stringResource(R.string.discover_filter_catalog),
-                value = selectedCatalogLabel,
-                selectedValue = uiState.selectedDiscoverCatalogKey,
-                expanded = expandedPicker == "catalog",
-                options = filteredCatalogs.map { DiscoverOption(it.catalogName, it.key) },
-                onExpandedChange = { shouldExpand ->
-                    expandedPicker = if (shouldExpand) "catalog" else null
-                },
-                onSelect = { option ->
-                    onSelectCatalog(option.value)
-                    expandedPicker = null
-                },
-                blockFocus = blockFilterFocus
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_filter_type),
+                    value = typeLabel(uiState.selectedDiscoverType),
+                    selectedValue = uiState.selectedDiscoverType,
+                    options = discoverTypes.map { DiscoverOption(typeLabel(it), it) },
+                    onSelect = { option ->
+                        onFilterEvent(SearchEvent.SelectDiscoverType(option.value))
+                    },
+                    blockFocus = blockFilterFocus
+                )
 
-            DiscoverDropdownPicker(
-                modifier = Modifier.weight(1f),
-                title = stringResource(R.string.discover_filter_genre),
-                value = selectedGenreLabel,
-                selectedValue = uiState.selectedDiscoverGenre ?: "__default__",
-                expanded = expandedPicker == "genre",
-                options = buildList {
-                    add(DiscoverOption(stringResource(R.string.discover_genre_default), "__default__"))
-                    addAll(genres.map { DiscoverOption(localizedGenreLabel(it), it) })
-                },
-                onExpandedChange = { shouldExpand ->
-                    expandedPicker = if (shouldExpand) "genre" else null
-                },
-                onSelect = { option ->
-                    onSelectGenre(option.value.takeUnless { it == "__default__" })
-                    expandedPicker = null
-                },
-                blockFocus = blockFilterFocus
-            )
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_filter_catalog),
+                    value = stringResource(selectedCatalog.label),
+                    selectedValue = uiState.selectedDiscoverCatalogKey,
+                    options = catalogOptions.map { DiscoverOption(stringResource(it.label), it.key) },
+                    onSelect = { option ->
+                        onFilterEvent(SearchEvent.SelectDiscoverCatalog(option.value))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_filter_genre),
+                    value = selectedGenreLabel,
+                    selectedValue = uiState.selectedDiscoverGenre.orEmpty(),
+                    options = listOf(DiscoverOption(anyLabel, "")) + discoverGenres.map {
+                        DiscoverOption(localizedGenreLabel(it), it)
+                    },
+                    onSelect = { option ->
+                        onFilterEvent(SearchEvent.SelectDiscoverGenre(option.value.takeIf { it.isNotEmpty() }))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                val periodOptions = DiscoverPeriod.entries.map { DiscoverOption(stringResource(it.labelResource), it.name) }
+                val sortOptions = DiscoverSort.entries.map { DiscoverOption(stringResource(it.labelResource), it.name) }
+                val ratingOptions = listOf(DiscoverOption(anyLabel, "")) + (1..10).map { DiscoverOption("$it+", it.toString()) }
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_watch_status),
+                    value = stringResource(uiState.discoverWatch.labelResource),
+                    selectedValue = uiState.discoverWatch.name,
+                    options = DiscoverWatch.entries.map { DiscoverOption(stringResource(it.labelResource), it.name) },
+                    onSelect = {
+                        onFilterEvent(SearchEvent.SelectDiscoverWatch(DiscoverWatch.valueOf(it.value)))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_period),
+                    value = stringResource(uiState.discoverPeriod.labelResource),
+                    selectedValue = uiState.discoverPeriod.name,
+                    options = periodOptions,
+                    onSelect = {
+                        onFilterEvent(SearchEvent.SelectDiscoverPeriod(DiscoverPeriod.valueOf(it.value)))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_min_rating),
+                    value = uiState.discoverMinRating?.let { "$it+" } ?: anyLabel,
+                    selectedValue = uiState.discoverMinRating?.toString().orEmpty(),
+                    options = ratingOptions,
+                    onSelect = {
+                        onFilterEvent(SearchEvent.SelectDiscoverMinRating(it.value.toIntOrNull()))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+                DiscoverDropdownPicker(
+                    modifier = Modifier.weight(1f),
+                    title = stringResource(R.string.discover_sort),
+                    value = stringResource(uiState.discoverSort.labelResource),
+                    selectedValue = uiState.discoverSort.name,
+                    options = sortOptions,
+                    onSelect = {
+                        onFilterEvent(SearchEvent.SelectDiscoverSort(DiscoverSort.valueOf(it.value)))
+                    },
+                    blockFocus = blockFilterFocus
+                )
+            }
         }
 
-        selectedCatalog?.let { catalog ->
-            val metadataSegments = buildList {
-                add(catalog.addonName)
-                if (uiState.catalogTypeSuffixEnabled) {
-                    localizedTypeLabel(catalog.type)
-                        .takeIf { it.isNotEmpty() }
-                        ?.let(::add)
+        uiState.discoverTotal?.let { total ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
+            ) {
+                Text(
+                    text = pluralStringResource(R.plurals.discover_match_count, total, total),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioTheme.colors.TextSecondary
+                )
+                for (source in uiState.discoverSources) {
+                    var focused by remember(source) { mutableStateOf(false) }
+                    Text(
+                        text = source.label,
+                        modifier = Modifier
+                            .focusProperties { canFocus = !blockFilterFocus }
+                            .onFocusChanged { focused = it.isFocused }
+                            .border(1.dp, if (focused) NuvioTheme.colors.FocusRing else Color.Transparent,
+                                RoundedCornerShape(3.dp))
+                            .clickable {
+                                try {
+                                    localContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(source.url)))
+                                } catch (_: ActivityNotFoundException) {
+                                    Toast.makeText(localContext, source.url, Toast.LENGTH_LONG).show()
+                                }
+                            }
+                            .padding(horizontal = NuvioTheme.spacing.xs),
+                        style = MaterialTheme.typography.bodySmall.copy(textDecoration = TextDecoration.Underline),
+                        color = if (focused) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextSecondary
+                    )
                 }
-                uiState.selectedDiscoverGenre?.let { add(localizedGenreLabel(it)) }
             }
-            Text(
-                text = metadataSegments.joinToString(" • "),
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioTheme.colors.TextSecondary
-            )
+        }
+
+        if (uiState.discoverError) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                val message = when (uiState.discoverFailure) {
+                    DiscoverFailure.CATALOG -> R.string.discover_catalog_unavailable
+                    DiscoverFailure.RANKING -> R.string.discover_ranking_unavailable
+                    DiscoverFailure.INDEX -> R.string.discover_index_unavailable
+                    DiscoverFailure.WATCH -> R.string.discover_watch_unavailable
+                    DiscoverFailure.BUSY -> R.string.discover_busy
+                    else -> R.string.discover_error_loading
+                }
+                Text(stringResource(message), color = NuvioTheme.colors.TextPrimary)
+                if (uiState.discoverResults.isEmpty()) {
+                    Button(onClick = { onFilterEvent(SearchEvent.RetryDiscover) }) {
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
+            }
         }
 
         when {
-            uiState.discoverLoading && uiState.discoverResults.isEmpty() -> {
+            uiState.discoverLoading -> {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -235,51 +419,57 @@ internal fun DiscoverSection(
             }
 
             uiState.discoverResults.isNotEmpty() -> {
-                Box(modifier = Modifier.onFocusChanged { gridHasFocus = it.hasFocus }) {
-                DiscoverGrid(
-                    items = uiState.discoverResults,
-                    posterCardStyle = posterCardStyle,
-                    watchedMovieIds = watchedMovieIds,
-                    watchedSeriesIds = watchedSeriesIds,
-                    focusResults = focusResults,
-                    firstItemFocusRequester = firstItemFocusRequester,
-                    focusedItemIndex = focusedItemIndex,
-                    shouldRestoreFocusedItem = shouldRestoreFocusedItem,
-                    onRestoreFocusedItemHandled = onRestoreFocusedItemHandled,
-                    onItemFocused = onDiscoverItemFocused,
-                    pendingCount = uiState.pendingDiscoverResults.size,
-                    canLoadMore = uiState.discoverHasMore,
-                    isLoadingMore = uiState.discoverLoadingMore,
-                    onLoadMore = onLoadMore,
-                    onItemClick = { _, item ->
-                        HeroBackdropState.update(item.backdropUrl)
-                        onNavigateToDetail(
-                            item.id,
-                            item.apiType,
-                            selectedCatalog?.addonBaseUrl ?: ""
-                        )
-                    },
-                    onItemLongPress = { item ->
-                        onItemLongPress(item, selectedCatalog?.addonBaseUrl ?: "")
-                    },
-                    filterKey = "${uiState.selectedDiscoverType}|${uiState.selectedDiscoverCatalogKey}|${uiState.selectedDiscoverGenre}"
-                )
+                Box(
+                    modifier = Modifier
+                        .then(if (controlsVisible) Modifier else Modifier.focusRequester(contentFocusRequester))
+                        .onFocusChanged { gridHasFocus = it.hasFocus }
+                        .focusGroup()
+                ) {
+                    DiscoverGrid(
+                        items = uiState.discoverResults,
+                        resolveArtwork = resolveArtwork,
+                        posterPattern = uiState.discoverPosterPattern,
+                        showLabels = uiState.posterLabelsEnabled,
+                        posterCardStyle = posterCardStyle,
+                        watchedMovieIds = watchedMovieIds,
+                        watchedSeriesIds = watchedSeriesIds,
+                        focusResults = focusResults,
+                        firstItemFocusRequester = firstItemFocusRequester,
+                        focusedItemIndex = focusedItemIndex,
+                        shouldRestoreFocusedItem = shouldRestoreFocusedItem,
+                        onRestoreFocusedItemHandled = onRestoreFocusedItemHandled,
+                        onItemFocused = onDiscoverItemFocused,
+                        onUpFromFirstRow = { requestFilterFocus = true },
+                        browsingResults = browsingResults,
+                        pageError = uiState.discoverError,
+                        canLoadMore = uiState.discoverHasMore,
+                        isLoadingMore = uiState.discoverLoadingMore,
+                        onLoadMore = if (uiState.discoverError) {
+                            { onFilterEvent(SearchEvent.RetryDiscover) }
+                        } else onLoadMore,
+                        onItemClick = { _, item ->
+                            HeroBackdropState.update(item.backdropUrl)
+                            onNavigateToDetail(
+                                item.id,
+                                item.apiType,
+                                item.sourceAddonBaseUrl.orEmpty()
+                            )
+                        },
+                        onItemLongPress = { item ->
+                            onItemLongPress(item, item.sourceAddonBaseUrl.orEmpty())
+                        },
+                        filterKey = listOf(uiState.selectedDiscoverType, uiState.selectedDiscoverCatalogKey,
+                            uiState.selectedDiscoverGenre, uiState.discoverKeyword, uiState.discoverPeriod,
+                            uiState.discoverMinRating, uiState.discoverWatch, uiState.discoverSort)
+                    )
                 }
             }
 
-            uiState.discoverInitialized && selectedCatalog == null -> {
+            uiState.discoverTotal == 0 -> {
                 EmptyScreenState(
-                    title = stringResource(R.string.discover_empty_no_catalog_title),
-                    subtitle = stringResource(R.string.discover_empty_no_catalog_subtitle),
-                    icon = Icons.Default.Search
-                )
-            }
-
-            uiState.discoverInitialized && !uiState.discoverLoading && selectedCatalog != null -> {
-                EmptyScreenState(
-                    title = stringResource(R.string.discover_empty_no_content_title),
-                    subtitle = stringResource(R.string.discover_empty_no_content_subtitle),
-                    icon = Icons.Default.Search
+                    title = stringResource(R.string.discover_no_matches),
+                    subtitle = stringResource(R.string.discover_empty_filter_hint),
+                    height = 140.dp
                 )
             }
         }
@@ -293,12 +483,11 @@ private fun DiscoverDropdownPicker(
     title: String,
     value: String,
     selectedValue: String?,
-    expanded: Boolean,
     options: List<DiscoverOption>,
-    onExpandedChange: (Boolean) -> Unit,
     onSelect: (DiscoverOption) -> Unit,
     blockFocus: Boolean = false
 ) {
+    var expanded by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
     var anchorSize by remember { mutableStateOf(IntSize.Zero) }
     // Seed focused option with the current selection so reopen highlights the right row
@@ -332,7 +521,7 @@ private fun DiscoverDropdownPicker(
 
     Box(modifier = modifier) {
         Card(
-            onClick = { onExpandedChange(!expanded) },
+            onClick = { expanded = options.isNotEmpty() },
             modifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { anchorSize = it }
@@ -340,7 +529,7 @@ private fun DiscoverDropdownPicker(
                     isFocused = state.isFocused
                 }
                 .then(
-                    if (blockFocus) Modifier.focusProperties { canFocus = false }
+                    if (blockFocus || options.isEmpty()) Modifier.focusProperties { canFocus = false }
                     else Modifier
                 ),
             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
@@ -402,7 +591,7 @@ private fun DiscoverDropdownPicker(
             expanded = expanded,
             onDismissRequest = {
                 focusedOptionValue = null
-                onExpandedChange(false)
+                expanded = false
             },
             modifier = Modifier
                 .width(with(LocalDensity.current) { anchorSize.width.toDp() })
@@ -462,7 +651,10 @@ private fun DiscoverDropdownPicker(
                             )
                         )
                     },
-                    onClick = { onSelect(option) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
                     colors = MenuDefaults.itemColors(
                         textColor = itemTextColor,
                         disabledTextColor = NuvioTheme.colors.TextDisabled
@@ -471,6 +663,35 @@ private fun DiscoverDropdownPicker(
             }
         }
     }
+}
+
+private val DiscoverWatch.labelResource get() = when (this) {
+    DiscoverWatch.ANY -> R.string.discover_filter_any
+    DiscoverWatch.UNWATCHED -> R.string.discover_unwatched
+    DiscoverWatch.WATCHED -> R.string.discover_watched
+}
+
+private val DiscoverPeriod.labelResource get() = when (this) {
+    DiscoverPeriod.ANY -> R.string.discover_filter_any
+    DiscoverPeriod.THIS_YEAR -> R.string.discover_this_year
+    DiscoverPeriod.LAST_FIVE_YEARS -> R.string.discover_last_five_years
+    DiscoverPeriod.DECADE_2020 -> R.string.discover_2020s
+    DiscoverPeriod.DECADE_2010 -> R.string.discover_2010s
+    DiscoverPeriod.DECADE_2000 -> R.string.discover_2000s
+    DiscoverPeriod.DECADE_1990 -> R.string.discover_1990s
+    DiscoverPeriod.DECADE_1980 -> R.string.discover_1980s
+    DiscoverPeriod.BEFORE_1980 -> R.string.discover_before_1980
+    DiscoverPeriod.BEFORE_2010 -> R.string.discover_before_2010
+}
+
+private val DiscoverSort.labelResource get() = when (this) {
+    DiscoverSort.POPULAR -> R.string.discover_popular
+    DiscoverSort.TRENDING -> R.string.discover_trending
+    DiscoverSort.TOP_RATED -> R.string.discover_top_rated
+    DiscoverSort.NEWEST -> R.string.discover_newest
+    DiscoverSort.OLDEST -> R.string.discover_oldest
+    DiscoverSort.TITLE_DESC -> R.string.discover_title_desc
+    DiscoverSort.TITLE -> R.string.discover_title_order
 }
 
 private data class DiscoverOption(
@@ -482,6 +703,9 @@ private data class DiscoverOption(
 @Composable
 internal fun DiscoverGrid(
     items: List<MetaPreview>,
+    resolveArtwork: suspend (MetaPreview) -> MetaPreview?,
+    posterPattern: String,
+    showLabels: Boolean,
     posterCardStyle: PosterCardStyle,
     watchedMovieIds: Set<String> = emptySet(),
     watchedSeriesIds: Set<String> = emptySet(),
@@ -491,17 +715,20 @@ internal fun DiscoverGrid(
     shouldRestoreFocusedItem: Boolean,
     onRestoreFocusedItemHandled: () -> Unit,
     onItemFocused: (Int) -> Unit,
-    pendingCount: Int,
+    onUpFromFirstRow: () -> Unit,
+    browsingResults: Boolean,
+    pageError: Boolean,
     canLoadMore: Boolean,
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit,
     onItemClick: (Int, MetaPreview) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
-    filterKey: String = ""
+    filterKey: List<Any?> = emptyList()
 ) {
+    val context = LocalContext.current
     val restoreFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
-    var pendingFocusOnNewItemIndex by remember { mutableStateOf<Int?>(null) }
+    var sizeBeforeLoadMore by remember(filterKey) { mutableStateOf<Int?>(null) }
 
     // Scroll to top only when the filter combination actually changes (not on initial composition / back navigation).
     var previousFilterKey by remember { mutableStateOf(filterKey) }
@@ -520,7 +747,7 @@ internal fun DiscoverGrid(
     }
     val effectiveShouldRestoreFocusedItem = shouldRestoreFocusedItem || localShouldRestoreFocusedItem
     val actionType = when {
-        pendingCount > 0 -> DiscoverGridAction.ShowMore
+        pageError -> DiscoverGridAction.Retry
         isLoadingMore -> DiscoverGridAction.Loading
         canLoadMore -> DiscoverGridAction.LoadMore
         else -> DiscoverGridAction.None
@@ -537,25 +764,14 @@ internal fun DiscoverGrid(
         )
     }
 
-    LaunchedEffect(effectiveShouldRestoreFocusedItem, effectiveFocusedItemIndex, totalCells) {
+    val canRestoreFocus = !LocalSidebarExpanded.current && (!localShouldRestoreFocusedItem || browsingResults)
+    LaunchedEffect(effectiveShouldRestoreFocusedItem, effectiveFocusedItemIndex, totalCells, canRestoreFocus) {
         if (!effectiveShouldRestoreFocusedItem) return@LaunchedEffect
-        if (effectiveFocusedItemIndex !in 0 until totalCells) {
-            if (localShouldRestoreFocusedItem) {
-                localShouldRestoreFocusedItem = false
-                localRestoreFocusedItemIndex = -1
-            } else {
-                onRestoreFocusedItemHandled()
+        if (canRestoreFocus && effectiveFocusedItemIndex in 0 until totalCells) {
+            if (gridState.layoutInfo.visibleItemsInfo.none { it.index == effectiveFocusedItemIndex }) {
+                gridState.scrollToItem(effectiveFocusedItemIndex)
             }
-            return@LaunchedEffect
-        }
-        try {
-            restoreFocusRequester.requestFocus()
-        } catch (_: Exception) {
-        }
-        repeat(2) { withFrameNanos { } }
-        try {
-            restoreFocusRequester.requestFocus()
-        } catch (_: Exception) {
+            restoreFocusRequester.requestFocusAfterFrames(frames = 2)
         }
         if (localShouldRestoreFocusedItem) {
             localShouldRestoreFocusedItem = false
@@ -565,16 +781,20 @@ internal fun DiscoverGrid(
         }
     }
 
-    LaunchedEffect(items.size, pendingFocusOnNewItemIndex) {
-        val targetIndex = pendingFocusOnNewItemIndex ?: return@LaunchedEffect
-        if (items.size <= targetIndex) return@LaunchedEffect
-        pendingFocusOnNewItemIndex = null
-        localRestoreFocusedItemIndex = targetIndex
-        localShouldRestoreFocusedItem = true
+    LaunchedEffect(items.size, canLoadMore, sizeBeforeLoadMore) {
+        val previousSize = sizeBeforeLoadMore ?: return@LaunchedEffect
+        if (items.size > previousSize) {
+            sizeBeforeLoadMore = null
+            if (browsingResults) {
+                localRestoreFocusedItemIndex = previousSize
+                localShouldRestoreFocusedItem = true
+            }
+        } else if (!canLoadMore) {
+            sizeBeforeLoadMore = null
+        }
     }
 
-    // Infinite scroll: auto-load more when the user scrolls near the end.
-    val shouldAutoLoad = canLoadMore && !isLoadingMore && items.isNotEmpty()
+    val shouldAutoLoad = canLoadMore && !isLoadingMore && !pageError && items.isNotEmpty()
     LaunchedEffect(gridState.firstVisibleItemIndex, items.size, shouldAutoLoad) {
         if (!shouldAutoLoad) return@LaunchedEffect
         val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
@@ -605,6 +825,16 @@ internal fun DiscoverGrid(
         ),
         modifier = Modifier.fillMaxSize()
             .focusRestorer { focusedItemRequester }
+            .onPreviewKeyEvent { event ->
+                val key = event.nativeKeyEvent
+                if (key.action == AndroidKeyEvent.ACTION_DOWN && key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP &&
+                    key.repeatCount == 0 && browsingResults &&
+                    gridState.layoutInfo.visibleItemsInfo.any { it.index == focusedItemIndex && it.row == 0 }
+                ) {
+                    onUpFromFirstRow()
+                    true
+                } else false
+            }
             .dpadVerticalFastScroll(
                 scrollableState = gridState,
                 onFastScrollingChanged = { active ->
@@ -657,7 +887,7 @@ internal fun DiscoverGrid(
     ) {
         itemsIndexed(
             items = items,
-            key = { index, item -> item.id.ifEmpty { "discover_$index" } },
+            key = { index, item -> "${item.apiType}:${item.id.ifEmpty { "discover_$index" }}" },
             contentType = { _, _ -> "content_card" }
         ) { index, item ->
             val itemFocusReq = remember(index) { itemFocusRequesters.getOrPut(index) { FocusRequester() } }
@@ -666,15 +896,24 @@ internal fun DiscoverGrid(
                 focusResults && index == 0 -> firstItemFocusRequester
                 else -> itemFocusReq
             }
+            // Loading follows this lazy cell's lifetime. The index owns membership and ordering.
+            var artwork by remember(item) { mutableStateOf<MetaPreview?>(null) }
+            LaunchedEffect(item) { artwork = resolveArtwork(item) ?: item }
+            val displayItem = remember(item, artwork, posterPattern) {
+                // Give Search artwork first chance before requesting the index's lazy image.
+                (artwork ?: item.copy(poster = null, rawPosterUrl = null)).withCustomPosterUrl(posterPattern)
+            }
             GridContentCard(
-                item = item,
-                onClick = { onItemClick(index, item) },
-                onLongPress = { onItemLongPress(item) },
-                posterCardStyle = adaptiveStyle,
-                isWatched = run {
-                    val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
-                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+                item = displayItem,
+                indexPosterUrl = if (artwork != null) item.poster else null,
+                showLabel = showLabels,
+                onClick = {
+                    if (displayItem.hasDiscoverDetails) onItemClick(index, displayItem)
+                    else Toast.makeText(context, R.string.discover_no_title_details, Toast.LENGTH_SHORT).show()
                 },
+                onLongPress = if (displayItem.hasDiscoverDetails) { { onItemLongPress(displayItem) } } else null,
+                posterCardStyle = adaptiveStyle,
+                isWatched = displayItem.isDiscoverWatched(watchedMovieIds, watchedSeriesIds),
                 modifier = Modifier
                     .padding(top = 3.dp)
                     .width(adaptiveStyle.width),
@@ -705,17 +944,9 @@ internal fun DiscoverGrid(
                     focusRequester = focusReq,
                     onFocused = { onItemFocused(actionIndex) },
                     onClick = {
-                        when (actionType) {
-                            DiscoverGridAction.ShowMore -> {
-                                pendingFocusOnNewItemIndex = items.size
-                                onLoadMore()
-                            }
-                            DiscoverGridAction.LoadMore -> {
-                                pendingFocusOnNewItemIndex = items.size
-                                onLoadMore()
-                            }
-                            DiscoverGridAction.Loading -> Unit
-                            DiscoverGridAction.None -> Unit
+                        if (actionType == DiscoverGridAction.LoadMore || actionType == DiscoverGridAction.Retry) {
+                            sizeBeforeLoadMore = items.size
+                            onLoadMore()
                         }
                     }
                 )
@@ -726,7 +957,7 @@ internal fun DiscoverGrid(
 
 private sealed class DiscoverGridAction {
     object None : DiscoverGridAction()
-    object ShowMore : DiscoverGridAction()
+    object Retry : DiscoverGridAction()
     object LoadMore : DiscoverGridAction()
     object Loading : DiscoverGridAction()
 }
@@ -743,7 +974,7 @@ private fun DiscoverActionCard(
 ) {
     val cardShape = RoundedCornerShape(posterCardStyle.cornerRadius)
     val title = when (actionType) {
-        DiscoverGridAction.ShowMore -> stringResource(R.string.discover_load_more)
+        DiscoverGridAction.Retry -> stringResource(R.string.action_retry)
         DiscoverGridAction.LoadMore -> stringResource(R.string.discover_load_more)
         DiscoverGridAction.Loading -> stringResource(R.string.discover_loading)
         DiscoverGridAction.None -> ""
@@ -761,7 +992,6 @@ private fun DiscoverActionCard(
                     if (globalLandscape) Modifier.fillMaxWidth().aspectRatio(com.nuvio.tv.domain.model.PosterShape.LANDSCAPE.aspectRatio())
                     else Modifier.width(posterCardStyle.width).height(posterCardStyle.height)
                 )
-                .focusProperties { canFocus = actionType != DiscoverGridAction.Loading }
                 .onPreviewKeyEvent { event ->
                     actionType != DiscoverGridAction.None &&
                         event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN &&

@@ -87,7 +87,8 @@ fun CatalogRow.mergeCatalogPage(
     }
     val mergedItems = items + newItems
     val requestedSkip = nextCatalogSkip()
-    val duplicatePageCount = if (newItems.isEmpty() && page.items.isNotEmpty()) {
+    val emptyButAdvanced = page.items.isEmpty() && page.hasMore && page.nextSkip > requestedSkip
+    val duplicatePageCount = if (newItems.isEmpty() && (page.items.isNotEmpty() || emptyButAdvanced)) {
         consecutiveDuplicatePages + 1
     } else {
         0
@@ -98,7 +99,7 @@ fun CatalogRow.mergeCatalogPage(
         page.nextSkip
     }
     val hasMore = when {
-        page.items.isEmpty() -> false
+        page.items.isEmpty() && !emptyButAdvanced -> false
         newItems.isNotEmpty() -> page.hasMore
         duplicatePageCount < DUPLICATE_PAGE_ADVANCE_LIMIT -> page.hasMore && advancedSkip > requestedSkip
         else -> false

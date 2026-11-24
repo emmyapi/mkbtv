@@ -18,24 +18,26 @@ class CustomPosterFallbackInterceptor : Interceptor {
 
     companion object {
         const val FALLBACK_URL_KEY = "custom_poster_fallback_url"
+        const val INDEX_POSTER_URL_KEY = "discover_index_poster_url"
     }
 
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
-        val result = chain.proceed()
-
-        if (result is ErrorResult) {
-            val fallbackUrl = chain.request.memoryCacheKeyExtras[FALLBACK_URL_KEY]
-            if (!fallbackUrl.isNullOrBlank()) {
-                val fallbackRequest = chain.request.newBuilder()
-                    .data(fallbackUrl)
-                    .memoryCacheKeyExtras(
-                        chain.request.memoryCacheKeyExtras - FALLBACK_URL_KEY
-                    )
-                    .build()
-                return chain.withRequest(fallbackRequest).proceed()
-            }
+        var result = chain.proceed()
+        if (result !is ErrorResult) return result
+        val request = chain.request
+        val extras = request.memoryCacheKeyExtras
+        val alternatives = listOfNotNull(extras[FALLBACK_URL_KEY], extras[INDEX_POSTER_URL_KEY])
+            .filter { it.isNotBlank() && it != request.data }
+            .distinct()
+        for (url in alternatives) {
+            val fallback = request.newBuilder()
+                .data(url)
+                .memoryCacheKey(null as String?)
+                .memoryCacheKeyExtras(extras - FALLBACK_URL_KEY - INDEX_POSTER_URL_KEY)
+                .build()
+            result = chain.withRequest(fallback).proceed()
+            if (result !is ErrorResult) break
         }
-
         return result
     }
 }

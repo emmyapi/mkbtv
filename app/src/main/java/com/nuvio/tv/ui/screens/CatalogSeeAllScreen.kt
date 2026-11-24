@@ -78,6 +78,7 @@ fun CatalogSeeAllScreen(
     addonId: String,
     type: String,
     searchViewModel: SearchViewModel? = null,
+    searchRowKey: String? = null,
     serverCatalog: ServerCatalogViewModel? = null,
     viewModel: HomeViewModel = hiltViewModel(),
     posterOptionsViewModel: com.nuvio.tv.ui.components.posteroptions.PosterOptionsViewModel = hiltViewModel(),
@@ -99,7 +100,7 @@ fun CatalogSeeAllScreen(
     BackHandler { onBackPress() }
 
     val isSearchMode = searchViewModel != null
-    val catalogKey = catalogRowLegacyKey(addonId, type, catalogId)
+    val catalogKey = searchRowKey ?: catalogRowLegacyKey(addonId, type, catalogId)
 
     // In search mode, get the catalog row from SearchViewModel's existing results.
     // Otherwise fall back to HomeViewModel's fullCatalogRows (home screen catalogs).
@@ -107,7 +108,7 @@ fun CatalogSeeAllScreen(
     val searchWatchedMovieIds = searchViewModel?.watchedMovieIds?.collectAsState()
     val searchWatchedSeriesIds = searchViewModel?.watchedSeriesIds?.collectAsState()
     val searchCatalogRow = searchUiState?.value?.catalogRows?.find {
-        it.legacyKey() == catalogKey
+        if (searchRowKey != null) it.stableKey() == searchRowKey else it.legacyKey() == catalogKey
     }
     val homeCatalogRow = fullCatalogRows.find {
         it.legacyKey() == catalogKey
@@ -143,7 +144,7 @@ fun CatalogSeeAllScreen(
     }
 
     // Load more when scrolling near the bottom
-    LaunchedEffect(gridState, catalogRow?.items?.size) {
+    LaunchedEffect(gridState, catalogKey, catalogRow?.items?.size, catalogRow?.nextSkip) {
         snapshotFlow {
             val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val total = gridState.layoutInfo.totalItemsCount
@@ -151,14 +152,14 @@ fun CatalogSeeAllScreen(
         }
             .distinctUntilChanged()
             .collect { (lastVisible, total) ->
-                if (total > 0 && lastVisible >= total - 10) {
+                if ((isSearchMode && catalogRow?.items?.isEmpty() == true) || (total > 0 && lastVisible >= total - 10)) {
                     val row = catalogRow
                     if (row != null && row.hasMore && !row.isLoading) {
                         if (serverCatalog != null) {
                             serverCatalog.loadMore()
                         } else if (isSearchMode) {
                             searchViewModel.onEvent(
-                                SearchEvent.LoadMoreCatalog(row.catalogId, row.addonId, row.apiType)
+                                SearchEvent.LoadMoreCatalog(row.stableKey())
                             )
                         } else {
                             viewModel.onEvent(
@@ -230,7 +231,9 @@ fun CatalogSeeAllScreen(
         Spacer(modifier = Modifier.height(NuvioTheme.spacing.xl))
 
         val hasItems = catalogRow?.items?.isNotEmpty() == true
-        val isCatalogLoading = if (catalogRow == null) serverFailed?.value != true else catalogRow.isLoading
+        val isCatalogLoading = catalogRow?.isLoading ?: if (isSearchMode) {
+            searchUiState?.value?.isSearching == true
+        } else serverFailed?.value != true
 
         if (hasItems) {
             val seeAllItemKeys = remember(catalogRow?.items) {

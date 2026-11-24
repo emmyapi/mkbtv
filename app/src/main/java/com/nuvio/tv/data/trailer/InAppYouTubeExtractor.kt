@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -80,7 +81,12 @@ internal data class StreamCandidate(
     // Adaptive video only: the format's codecs string (e.g. "av01.0.12M.10"), null when unknown,
     // and whether it is HDR (PQ or HLG).
     val codecs: String? = null,
-    val isHdr: Boolean = false
+    val isHdr: Boolean = false,
+    val transfer: TrailerTransfer = TrailerTransfer.UNKNOWN,
+    val audioCodec: String? = null,
+    val audioLanguage: String? = null,
+    val encodedHeight: Int = 0,
+    val bitrate: Double = 0.0
 )
 
 internal enum class PlaybackSourceKind {
@@ -88,6 +94,10 @@ internal enum class PlaybackSourceKind {
     HLS_MANIFEST,
     PROGRESSIVE
 }
+
+private data class FullscreenRequest(
+    val display: TrailerDisplayCapabilities, val language: String, val excluded: Set<TrailerVideoFormat>
+)
 
 private data class ManifestBestVariant(
     val url: String,
@@ -207,6 +217,10 @@ class InAppYouTubeExtractor internal constructor(
             .build()
     }
 
+    private val fullscreenHttpClient by lazy {
+        httpClient.newBuilder().callTimeout(7, TimeUnit.SECONDS).build()
+    }
+
     // --- Cached watch config (api key + visitor data) ---
     private data class CachedConfig(
         val apiKey: String,
@@ -240,7 +254,7 @@ class InAppYouTubeExtractor internal constructor(
      *  - Cache is older than CONFIG_TTL_MS
      *  - [forceRefresh] is true (e.g. after LOGIN_REQUIRED)
      */
-    private suspend fun ensureWatchConfig(forceRefresh: Boolean = false): CachedConfig {
+    private suspend fun ensureWatchConfig(videoId: String, forceRefresh: Boolean, client: OkHttpClient): CachedConfig {
         // Fast path: return valid cache without locking
         if (!forceRefresh) {
             val current = cachedConfig.get()
@@ -260,11 +274,12 @@ class InAppYouTubeExtractor internal constructor(
             }
 
             Log.d(TAG, "Fetching watch page for visitor_data (forceRefresh=$forceRefresh)")
-            val watchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en"
+            val watchUrl = "https://www.youtube.com/watch?v=$videoId&hl=en"
             val watchResponse = performRequest(
                 url = watchUrl,
                 method = "GET",
-                headers = DEFAULT_HEADERS
+                headers = DEFAULT_HEADERS,
+                client = client
             )
             if (watchResponse.status == HTTP_TOO_MANY_REQUESTS) {
                 throw RateLimitedException("watch page returned 429")
@@ -321,6 +336,14 @@ class InAppYouTubeExtractor internal constructor(
     ): TrailerPlaybackSource? =
         extract(youtubeUrl, singleUrl = false, maxVideoHeight = maxVideoHeight)
 
+    internal suspend fun extractFullscreenSource(
+        videoId: String, display: TrailerDisplayCapabilities, language: String,
+        excluded: Set<TrailerVideoFormat> = emptySet()
+    ): TrailerPlaybackSource? {
+        if (!VIDEO_ID_REGEX.matches(videoId)) return null
+        return extract(videoId, singleUrl = false, fullscreen = FullscreenRequest(display, language, excluded))
+    }
+
     /**
      * Returns one URL that carries both video and audio, for players that take a single URL
      * (the main player and external players). Prefers the HLS master playlist, which covers
@@ -332,7 +355,8 @@ class InAppYouTubeExtractor internal constructor(
     private suspend fun extract(
         youtubeUrl: String,
         singleUrl: Boolean,
-        maxVideoHeight: Int = Int.MAX_VALUE
+        maxVideoHeight: Int = Int.MAX_VALUE,
+        fullscreen: FullscreenRequest? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         if (youtubeUrl.isBlank()) return@withContext null
         if (rateLimitGate.isBlocked()) {
@@ -348,31 +372,33 @@ class InAppYouTubeExtractor internal constructor(
         var source: TrailerPlaybackSource? = null
         try {
             source = try {
-                attemptExtraction(youtubeUrl, forceRefreshConfig = false, singleUrl, maxVideoHeight)
+                attemptExtraction(youtubeUrl, forceRefreshConfig = false, singleUrl, maxVideoHeight, fullscreen)
             } catch (e: StaleConfigException) {
                 // Only a stale visitor id is fixed by a fresh watch page. Other failures would
                 // fail the same way again, and every extra request counts toward YouTube's limit.
+                if (fullscreen != null) return@withContext null
                 Log.d(TAG, "Every client asked to sign in, retrying with a fresh watch config")
-                attemptExtraction(youtubeUrl, forceRefreshConfig = true, singleUrl, maxVideoHeight)
+                attemptExtraction(youtubeUrl, forceRefreshConfig = true, singleUrl, maxVideoHeight, fullscreen)
             }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             // A timeout is a failed attempt, not a cancellation of the caller.
-            Log.w(TAG, "Kotlin extractor timed out for $youtubeUrl")
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            Log.w(TAG, "YouTube extraction timed out")
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: RateLimitedException) {
             val cooldownMs = rateLimitGate.onRateLimited()
             Log.w(TAG, "YouTube is rate limiting (${e.message}), pausing extraction for ${cooldownMs / 1000}s")
         } catch (e: StaleConfigException) {
-            Log.w(TAG, "Every client still asks to sign in with a fresh watch config for $youtubeUrl")
+            Log.w(TAG, "YouTube requires sign-in")
         } catch (error: Exception) {
-            Log.w(TAG, "Kotlin extractor failed for $youtubeUrl: ${error.message}")
+            Log.w(TAG, "YouTube extraction failed (${error.javaClass.simpleName})")
         }
 
         if (source == null) {
             Log.w(TAG, "Kotlin extraction returned no playable source for ${summarizeUrl(youtubeUrl)}")
         } else {
-            rateLimitGate.onSuccess()
+            if (!rateLimitGate.isBlocked()) rateLimitGate.onSuccess()
             Log.d(
                 TAG,
                 "Kotlin extraction success for ${summarizeUrl(youtubeUrl)} " +
@@ -387,27 +413,30 @@ class InAppYouTubeExtractor internal constructor(
         youtubeUrl: String,
         forceRefreshConfig: Boolean,
         singleUrl: Boolean,
-        maxVideoHeight: Int
+        maxVideoHeight: Int,
+        fullscreen: FullscreenRequest?
     ): TrailerPlaybackSource? = withTimeout(EXTRACTOR_TIMEOUT_MS) {
-        extractPlaybackSourceInternal(youtubeUrl, forceRefreshConfig, singleUrl, maxVideoHeight)
+        extractPlaybackSourceInternal(youtubeUrl, forceRefreshConfig, singleUrl, maxVideoHeight, fullscreen)
     }
 
     private suspend fun extractPlaybackSourceInternal(
         youtubeUrl: String,
         forceRefreshConfig: Boolean,
         singleUrl: Boolean,
-        maxVideoHeight: Int
+        maxVideoHeight: Int,
+        fullscreen: FullscreenRequest?
     ): TrailerPlaybackSource? {
         val videoId = extractVideoId(youtubeUrl) ?: return null
 
         // Use cached config instead of fetching watch page every time
-        val config = ensureWatchConfig(forceRefresh = forceRefreshConfig)
-        Log.d(TAG, "Using config: apiKey=${config.apiKey.take(10)}... visitor=${!config.visitorData.isNullOrBlank()}")
+        val clientForRequest = if (fullscreen == null) httpClient else fullscreenHttpClient
+        val config = ensureWatchConfig(videoId, forceRefreshConfig, clientForRequest)
 
         val streams = ClientStreams()
         val pendingClients = CLIENTS.iterator()
         var loginRequiredCount = 0
         var botCheckCount = 0
+        var unavailable = false
 
         suspend fun queryNextClient() {
             kotlinx.coroutines.yield()
@@ -418,18 +447,21 @@ class InAppYouTubeExtractor internal constructor(
                     videoId = videoId,
                     client = client,
                     visitorData = config.visitorData,
+                    http = clientForRequest,
                     cookieHeader = null
                 )
 
                 val playabilityStatus = playerResponse.mapValue("playabilityStatus")
                 val status = playabilityStatus?.stringValue("status")
+                if (fullscreen != null && status != null && status != "OK") unavailable = true
                 if (status == "LOGIN_REQUIRED") {
                     val reason = playabilityStatus?.stringValue("reason").orEmpty()
                     when {
                         // "Sign in to confirm you're not a bot": YouTube is throttling this IP.
                         BOT_CHECK_REGEX.containsMatchIn(reason) -> {
+                            if (fullscreen != null) throw RateLimitedException("YouTube requested bot verification")
                             botCheckCount++
-                            Log.w(TAG, "Client ${client.key}: bot check ($reason)")
+                            Log.w(TAG, "Client ${client.key}: bot check")
                         }
                         // Age-restricted: a property of the video, a fresh config won't help.
                         AGE_CHECK_REGEX.containsMatchIn(reason) ->
@@ -443,15 +475,34 @@ class InAppYouTubeExtractor internal constructor(
                 }
                 if (status != null && status != "OK") return
 
+                if (fullscreen != null && (status != "OK" ||
+                    playerResponse.mapValue("videoDetails")?.stringValue("videoId") != videoId)) return
                 val streamingData = playerResponse.mapValue("streamingData") ?: return
                 addClientStreams(client, streamingData, streams)
             } catch (e: RateLimitedException) {
                 throw e
             } catch (error: Exception) {
                 if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Client ${client.key} failed: ${error.message}")
+                    Log.w(TAG, "Client ${client.key} failed (${error.javaClass.simpleName})")
                 }
             }
+        }
+
+        if (fullscreen != null) {
+            // Use the format catalog in the first response. Ask one more client only when the
+            // first yielded no playable pair. This bounds requests across the three uploads.
+            repeat(2) {
+                queryNextClient()
+                kotlinx.coroutines.yield()
+                if (unavailable || rateLimitGate.isBlocked()) return null
+                val source = pickFullscreenSource(streams, fullscreen)
+                if (source != null) return source
+                streams.manifestUrls.clear()
+                streams.progressive.clear()
+                streams.adaptiveVideo.clear()
+                streams.adaptiveAudio.clear()
+            }
+            return null
         }
 
         // Ask the clients one at a time and stop once the first source kind we'd use is
@@ -512,7 +563,14 @@ class InAppYouTubeExtractor internal constructor(
                 itag = format.stringValue("itag").orEmpty(),
                 height = height,
                 fps = fps,
-                ext = if (mimeType.contains("webm")) "webm" else "mp4"
+                ext = if (mimeType.contains("webm")) "webm" else "mp4",
+                width = (format.numberValue("width") ?: 0.0).toInt(),
+                encodedHeight = (format.numberValue("height") ?: 0.0).toInt(),
+                bitrate = bitrate,
+                codecs = videoCodecsParam(mimeType)?.substringBefore(',')?.trim(),
+                audioCodec = videoCodecsParam(mimeType)?.substringAfter(',', "")?.trim()?.takeIf { it.isNotEmpty() },
+                isHdr = isHdrFormat(format),
+                transfer = trailerTransfer(format.mapValue("colorInfo")?.stringValue("transferCharacteristics"), videoCodecsParam(mimeType))
             )
         }
 
@@ -540,10 +598,13 @@ class InAppYouTubeExtractor internal constructor(
                     itag = format.stringValue("itag").orEmpty(),
                     height = height,
                     width = (format.numberValue("width") ?: 0.0).toInt(),
+                    encodedHeight = (format.numberValue("height") ?: 0.0).toInt(),
+                    bitrate = bitrate,
                     fps = fps,
                     ext = if (mimeType.contains("webm")) "webm" else "mp4",
                     codecs = videoCodecsParam(mimeType),
-                    isHdr = isHdrFormat(format)
+                    isHdr = isHdrFormat(format),
+                    transfer = trailerTransfer(format.mapValue("colorInfo")?.stringValue("transferCharacteristics"), videoCodecsParam(mimeType))
                 )
             } else if (hasAudio) {
                 val bitrate = format.numberValue("bitrate")
@@ -567,9 +628,123 @@ class InAppYouTubeExtractor internal constructor(
                     height = 0,
                     fps = 0,
                     ext = if (mimeType.contains("webm")) "webm" else "m4a",
-                    isDefaultAudioTrack = isDefaultAudioTrack
+                    isDefaultAudioTrack = isDefaultAudioTrack,
+                    audioCodec = videoCodecsParam(mimeType),
+                    audioLanguage = format.mapValue("audioTrack")?.stringValue("id")?.substringBefore('.')
                 )
             }
+        }
+    }
+
+    private suspend fun pickFullscreenSource(
+        streams: ClientStreams, request: FullscreenRequest
+    ): TrailerPlaybackSource? {
+        val (display, language, excluded) = request
+        val formats = mutableListOf<FullscreenTrailerFormat>()
+        val preferredLanguage = language.substringBefore('-')
+        val audioTracks = sortCandidates(streams.adaptiveAudio).sortedByDescending {
+            it.audioLanguage?.substringBefore('-').equals(preferredLanguage, ignoreCase = true)
+        }.distinctBy { it.audioCodec }
+        for (video in streams.adaptiveVideo + streams.progressive) {
+            if (video.isHdr && !video.transfer.isHdr) continue // "HDR" alone does not establish PQ or HLG
+            if (video.audioCodec != null) {
+                formats += video.fullscreenFormat(null)
+            } else if (video in streams.adaptiveVideo) {
+                // Keep an alternative codec if a TV cannot decode the first audio format.
+                for (audio in audioTracks) {
+                    formats += video.fullscreenFormat(audio)
+                }
+            }
+        }
+        val direct = rankedFullscreenFormats(formats, display, excluded, VideoDecoderSupport::canPlayFullscreen)
+        val checked = mutableMapOf<String, Boolean>()
+        fun reachable(url: String) = checked.getOrPut(url) { probeFullscreenUrl(url) }
+
+        suspend fun firstPlayable(ranked: List<FullscreenTrailerFormat>): TrailerPlaybackSource? {
+            for (choices in fullscreenProbeChoices(ranked)) {
+                val videoUrl = choices.first().source.videoUrl
+                kotlinx.coroutines.yield()
+                if (!reachable(videoUrl)) continue
+                for (choice in choices.take(2)) {
+                    val audioUrl = choice.source.audioUrl
+                    if (audioUrl == null || reachable(audioUrl)) return choice.source
+                }
+            }
+            return null
+        }
+
+        if (direct.firstOrNull()?.let { display.isOptimal(it.source) } == true) {
+            val firstVideoUrl = direct.first().source.videoUrl
+            firstPlayable(direct.filter { it.source.videoUrl == firstVideoUrl })?.let { return it }
+        }
+        val master = streams.manifestUrls.firstOrNull { isYouTubeMediaUrl(it.third) }?.third
+        if (master != null) {
+            kotlinx.coroutines.yield()
+            val response = try {
+                performRequest(master, "GET", DEFAULT_HEADERS, client = fullscreenHttpClient)
+            } catch (_: java.io.IOException) {
+                null
+            }
+            if (response?.status == HTTP_TOO_MANY_REQUESTS) throw RateLimitedException("HLS master returned 429")
+            if (response?.ok == true && isYouTubeMediaUrl(response.url)) {
+                formats += fullscreenHlsFormats(response.url, response.body, preferredLanguage)
+                return firstPlayable(rankedFullscreenFormats(formats, display, excluded, VideoDecoderSupport::canPlayFullscreen))
+            }
+        }
+        return firstPlayable(direct)
+    }
+
+    private fun StreamCandidate.fullscreenFormat(audio: StreamCandidate?) = FullscreenTrailerFormat(
+        TrailerPlaybackSource(
+            videoUrl = url, audioUrl = audio?.url, width = width, height = encodedHeight,
+            videoCodec = codecs, audioCodec = audio?.audioCodec ?: audioCodec, transfer = transfer
+        ),
+        fps = fps, bitrate = bitrate
+    )
+
+    /** Pin the advertised video variant and its actual audio rendition, including muxed audio. */
+    internal fun fullscreenHlsFormats(master: String, body: String, language: String): List<FullscreenTrailerFormat> {
+        val lines = body.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+        val audioGroups = lines.filter { it.startsWith("#EXT-X-MEDIA:") }
+            .map(::parseHlsAttributeList).filter { it["TYPE"] == "AUDIO" }.groupBy { it["GROUP-ID"] }
+        return lines.mapIndexedNotNull { index, line ->
+            if (!line.startsWith("#EXT-X-STREAM-INF:")) return@mapIndexedNotNull null
+            val variant = lines.getOrNull(index + 1)?.takeUnless { it.startsWith('#') } ?: return@mapIndexedNotNull null
+            val attrs = parseHlsAttributeList(line)
+            val codecs = attrs["CODECS"].orEmpty().split(',').map(String::trim)
+            val videoCodec = codecs.firstOrNull { videoCodecMimeType(it) != null } ?: return@mapIndexedNotNull null
+            val audioCodec = codecs.firstOrNull { it.startsWith("mp4a") || it == "opus" || it == "ac-3" || it == "ec-3" }
+                ?: return@mapIndexedNotNull null
+            val audioGroup = attrs["AUDIO"]
+            val audio = if (audioGroup == null) null else {
+                audioGroups[audioGroup]?.sortedWith(compareByDescending<Map<String, String>> {
+                    it["LANGUAGE"]?.substringBefore('-').equals(language, ignoreCase = true)
+                }.thenByDescending { it["DEFAULT"] == "YES" })?.firstOrNull() ?: return@mapIndexedNotNull null
+            }
+            val (width, height) = parseResolution(attrs["RESOLUTION"].orEmpty())
+            FullscreenTrailerFormat(
+                TrailerPlaybackSource(
+                    videoUrl = absolutizeUrl(master, variant), audioUrl = audio?.get("URI")?.let { absolutizeUrl(master, it) },
+                    width = width, height = height, videoCodec = videoCodec, audioCodec = audioCodec,
+                    transfer = trailerTransfer(attrs["VIDEO-RANGE"], videoCodec, hls = true),
+                    isHls = true
+                ),
+                fps = kotlin.math.ceil(attrs["FRAME-RATE"]?.toDoubleOrNull() ?: 0.0).toInt(),
+                bitrate = attrs["BANDWIDTH"]?.toDoubleOrNull() ?: 0.0
+            )
+        }
+    }
+
+    /** Only the canonical signed URL returned by YouTube is probed, using a bounded range. */
+    private fun probeFullscreenUrl(url: String): Boolean {
+        val request = Request.Builder().url(url).headers(buildHeaders(DEFAULT_HEADERS)).header("Range", "bytes=0-0").build()
+        return try {
+            probeClient.newCall(request).execute().use { response ->
+                if (response.code == HTTP_TOO_MANY_REQUESTS) throw RateLimitedException("media returned 429")
+                response.isSuccessful && isYouTubeMediaUrl(response.request.url.toString())
+            }
+        } catch (_: java.io.IOException) {
+            false
         }
     }
 
@@ -632,7 +807,7 @@ class InAppYouTubeExtractor internal constructor(
                 }
             } catch (error: Exception) {
                 if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Manifest parse failed: ${error.message}")
+                    Log.w(TAG, "Manifest parse failed (${error.javaClass.simpleName})")
                 }
             }
         }
@@ -688,7 +863,8 @@ class InAppYouTubeExtractor internal constructor(
         videoId: String,
         client: YouTubeClient,
         visitorData: String?,
-        cookieHeader: String?
+        cookieHeader: String?,
+        http: OkHttpClient
     ): Map<*, *> {
         val endpoint = "https://www.youtube.com/youtubei/v1/player?key=${Uri.encode(apiKey)}"
 
@@ -717,7 +893,8 @@ class InAppYouTubeExtractor internal constructor(
             url = endpoint,
             method = "POST",
             headers = headers,
-            body = gson.toJson(payload)
+            body = gson.toJson(payload),
+            client = http
         )
         if (response.status == HTTP_TOO_MANY_REQUESTS) {
             throw RateLimitedException("player API ${client.key} returned 429")
@@ -908,7 +1085,7 @@ class InAppYouTubeExtractor internal constructor(
 
     /** HDR by its transfer function (PQ or HLG), or by YouTube's "HDR" quality label. */
     private fun isHdrFormat(format: Map<*, *>): Boolean {
-        val transfer = format.mapValue("colorInfo")?.stringValue("transferCharacteristics").orEmpty()
+        val transfer = format.mapValue("colorInfo")?.stringValue("transferCharacteristics").orEmpty().uppercase()
         return transfer.contains("SMPTEST2084") ||
             transfer.contains("ARIB_STD_B67") ||
             format.stringValue("qualityLabel").orEmpty().contains("HDR", ignoreCase = true)
@@ -1009,16 +1186,16 @@ class InAppYouTubeExtractor internal constructor(
         return runCatching {
             val parsed = URL(url)
             val host = parsed.host ?: "unknown-host"
-            val path = parsed.path ?: "/"
-            "$host$path"
-        }.getOrDefault(url.take(80))
+            host
+        }.getOrDefault("YouTube video")
     }
 
     private fun performRequest(
         url: String,
         method: String,
         headers: Map<String, String>,
-        body: String? = null
+        body: String? = null,
+        client: OkHttpClient = httpClient
     ): RequestResponse {
         val requestBuilder = Request.Builder()
             .url(url)
@@ -1031,7 +1208,7 @@ class InAppYouTubeExtractor internal constructor(
             else -> requestBuilder.get()
         }
 
-        httpClient.newCall(requestBuilder.build()).execute().use { response ->
+        client.newCall(requestBuilder.build()).execute().use { response ->
             return RequestResponse(
                 ok = response.isSuccessful,
                 status = response.code,

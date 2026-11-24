@@ -24,7 +24,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -33,6 +35,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -166,6 +169,10 @@ private fun AppIconOptionCard(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val context = LocalContext.current
+    val banner = remember(context, option) {
+        requireNotNull(context.getDrawable(option.bannerResource)).toBitmap().asImageBitmap()
+    }
     Card(
         onClick = { if (enabled) onClick() },
         modifier = modifier
@@ -197,7 +204,7 @@ private fun AppIconOptionCard(
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
             Image(
-                painter = painterResource(option.bannerResource),
+                bitmap = banner,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()

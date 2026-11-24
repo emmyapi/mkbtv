@@ -129,7 +129,9 @@ fun HeroContentSection(
     onHeroActionFocused: () -> Unit = {},
     onPlayFocusRestored: () -> Unit = {},
     onShowFullDescription: () -> Unit = {},
-    onTruncationChanged: (Boolean) -> Unit = {}
+    onTruncationChanged: (Boolean) -> Unit = {},
+    actionRowModifier: Modifier = Modifier,
+    synopsisModifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val isSeriesApi = remember(meta.apiType) {
@@ -255,6 +257,7 @@ fun HeroContentSection(
             ) {
                 Column {
                     Row(
+                        modifier = actionRowModifier,
                         horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -357,7 +360,7 @@ fun HeroContentSection(
                             upFocusRequester = playButtonFocusRequester,
                             onFocused = onHeroActionFocused,
                             onTruncationChanged = onTruncationChanged,
-                            modifier = Modifier
+                            modifier = synopsisModifier
                                 .fillMaxWidth(0.6f)
                                 .padding(bottom = NuvioTheme.spacing.md)
                         )

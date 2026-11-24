@@ -1,7 +1,6 @@
 package com.nuvio.tv.data.trailer
 
 import android.net.Uri
-import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -23,7 +22,6 @@ class YoutubeChunkedDataSourceFactory(
 ) : DataSource.Factory {
 
     companion object {
-        private const val TAG = "YTChunkedDS"
         /** 10 MB chunks – large enough to avoid too many requests, small enough to dodge throttle. */
         private const val CHUNK_SIZE = 10L * 1024 * 1024
     }
@@ -37,14 +35,15 @@ class YoutubeChunkedDataSourceFactory(
         return YoutubeChunkedDataSource(upstream, chunkSizeBytes)
     }
 
-    private class YoutubeChunkedDataSource(
-        private val upstream: DefaultHttpDataSource,
+    internal class YoutubeChunkedDataSource(
+        private val upstream: DataSource,
         private val chunkSize: Long
     ) : DataSource {
 
         private var currentUri: Uri? = null
         private var isYouTubeStream = false
-        private var totalContentLength = C.LENGTH_UNSET.toLong()
+        private var exhausted = false
+        private var remainingLength = C.LENGTH_UNSET.toLong()
         private var currentChunkStart = 0L
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
@@ -57,7 +56,9 @@ class YoutubeChunkedDataSourceFactory(
         override fun open(dataSpec: DataSpec): Long {
             val uri = dataSpec.uri
             val host = uri.host.orEmpty()
-            isYouTubeStream = host.contains("googlevideo.com")
+            isYouTubeStream = host == "googlevideo.com" || host.endsWith(".googlevideo.com")
+            currentUri = uri
+            exhausted = false
 
             if (!isYouTubeStream) {
                 return upstream.open(dataSpec)
@@ -65,15 +66,15 @@ class YoutubeChunkedDataSourceFactory(
 
             originalDataSpec = dataSpec
             currentChunkStart = dataSpec.position
-            totalContentLength = dataSpec.length
+            remainingLength = dataSpec.length
 
             return openNextChunk()
         }
 
         private fun openNextChunk(): Long {
             val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
-            val end = if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                minOf(currentChunkStart + chunkSize - 1, currentChunkStart + totalContentLength - 1)
+            val end = if (remainingLength != C.LENGTH_UNSET.toLong()) {
+                minOf(currentChunkStart + chunkSize - 1, currentChunkStart + remainingLength - 1)
             } else {
                 currentChunkStart + chunkSize - 1
             }
@@ -92,7 +93,7 @@ class YoutubeChunkedDataSourceFactory(
 
             bytesReadInChunk = 0
             upstream.open(chunkedSpec)
-            return if (totalContentLength != C.LENGTH_UNSET.toLong()) totalContentLength else C.LENGTH_UNSET.toLong()
+            return remainingLength
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -100,36 +101,28 @@ class YoutubeChunkedDataSourceFactory(
                 return upstream.read(buffer, offset, length)
             }
 
-            val bytesRead = upstream.read(buffer, offset, length)
-            if (bytesRead == C.RESULT_END_OF_INPUT) {
-                // Current chunk exhausted — open the next one
-                val chunkBytesReceived = bytesReadInChunk
-                upstream.close()
+            if (length == 0) return 0
+            if (exhausted) return C.RESULT_END_OF_INPUT
+            while (true) {
+                val count = upstream.read(buffer, offset, length)
+                if (count != C.RESULT_END_OF_INPUT) {
+                    bytesReadInChunk += count
+                    return count
+                }
 
-                // If this chunk returned fewer bytes than requested, the stream is done
-                if (chunkBytesReceived < (currentChunkEnd - currentChunkStart + 1)) {
+                val requested = currentChunkEnd - currentChunkStart + 1
+                if (bytesReadInChunk < requested || bytesReadInChunk == remainingLength) {
+                    exhausted = true
                     return C.RESULT_END_OF_INPUT
                 }
 
-                currentChunkStart += chunkBytesReceived
-                if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                    totalContentLength -= chunkBytesReceived
-                    if (totalContentLength <= 0) {
-                        return C.RESULT_END_OF_INPUT
-                    }
-                }
-
-                return try {
-                    openNextChunk()
-                    upstream.read(buffer, offset, length)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to open next chunk at $currentChunkStart: ${e.message}")
-                    C.RESULT_END_OF_INPUT
-                }
+                currentChunkStart += bytesReadInChunk
+                if (remainingLength != C.LENGTH_UNSET.toLong()) remainingLength -= bytesReadInChunk
+                upstream.close()
+                // The first read of the next chunk follows the same counting path as every other
+                // read. An upstream failure must reach Media3 so it can retry at the last offset.
+                openNextChunk()
             }
-
-            bytesReadInChunk += bytesRead
-            return bytesRead
         }
 
         override fun getUri(): Uri? = upstream.uri ?: currentUri

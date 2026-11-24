@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+*.env
+config.json
+data/
+state/
+history/
+generations/
+cache/
+*.sqlite3*
+*.lock
+.new-*
+.pending-*

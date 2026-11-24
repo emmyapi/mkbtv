@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -23,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.focusGroup
@@ -34,13 +34,15 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
-import com.nuvio.tv.ui.components.GridContentCard
+import com.nuvio.tv.ui.components.ContentCard
 import com.nuvio.tv.ui.components.PosterCardStyle
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun MoreLikeThisSection(
     items: List<MetaPreview>,
+    loadArtwork: suspend (MetaPreview) -> Unit,
+    title: String,
     listState: LazyListState,
     sourceLabel: String? = null,
     posterCardCornerRadius: Dp = NuvioTheme.spacing.md,
@@ -90,7 +92,7 @@ fun MoreLikeThisSection(
     val suppressRestoreScroll = !restoreItemId.isNullOrBlank()
     var restorePending by remember(restoreItemId) { mutableStateOf(suppressRestoreScroll) }
     var placedFocused by remember(restoreItemId) { mutableStateOf(false) }
-    LaunchedEffect(restoreItemId) {
+    LaunchedEffect(restoreItemId, restoreFocusToken) {
         if (restoreItemId.isNullOrBlank()) return@LaunchedEffect
         restoreFocusRequester.requestFocusAfterFrames(frames = 0)
     }
@@ -106,21 +108,21 @@ fun MoreLikeThisSection(
         Modifier
     }
 
-    val landscapeStyle = remember(posterCardCornerRadius) {
-        PosterCardStyle(
-            width = 260.dp,
-            height = 146.dp,
-            cornerRadius = posterCardCornerRadius,
-            focusedBorderWidth = NuvioTheme.spacing.xxs,
-            focusedScale = 1.02f
-        )
+    val posterStyle = remember(posterCardCornerRadius) {
+        PosterCardStyle(cornerRadius = posterCardCornerRadius)
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm)
+            .padding(top = 20.dp, bottom = NuvioTheme.spacing.sm)
     ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = NuvioTheme.colors.TextPrimary,
+            modifier = Modifier.padding(start = NuvioTheme.spacing.xxxl, end = NuvioTheme.spacing.xxxl, bottom = NuvioTheme.spacing.sm)
+        )
         LazyRow(
             state = listState,
             modifier = Modifier
@@ -141,6 +143,7 @@ fun MoreLikeThisSection(
                 items = items,
                 key = { index, item -> previewRowLazyKey(index, item.id, item.name) }
             ) { index, item ->
+                LaunchedEffect(item.id, item.apiType, item.poster) { loadArtwork(item) }
                 val isRestoreTarget = item.id == restoreItemId
                 val isFirstItem = index == 0
                 val focusRequester = when {
@@ -162,18 +165,18 @@ fun MoreLikeThisSection(
                         }
                     )
                 ) {
-                    GridContentCard(
+                    ContentCard(
+                        modifier = Modifier.focusProperties {
+                            if (upFocusRequester != null) up = upFocusRequester
+                            if (downFocusRequester != null) down = downFocusRequester
+                        },
                         item = item,
                         onClick = { onItemClick(item) },
                         onLongPress = { onItemLongPress(item) },
-                        posterCardStyle = landscapeStyle,
-                        showLabel = true,
-                        imageCrossfade = true,
+                        posterCardStyle = posterStyle,
                         isWatched = isItemWatched(item),
                         focusRequester = focusRequester,
-                        upFocusRequester = upFocusRequester,
-                        downFocusRequester = downFocusRequester,
-                        onFocused = {
+                        onFocus = {
                             onLastFocusedItemIdChange(item.id)
                             onItemFocused(item)
                             if (isRestoreTarget && !restoreItemId.isNullOrBlank()) {
@@ -182,19 +185,6 @@ fun MoreLikeThisSection(
                             }
                         }
                     )
-                    val year = item.releaseInfo
-                    if (!year.isNullOrBlank()) {
-                        Text(
-                            text = year,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NuvioTheme.colors.TextTertiary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .width(landscapeStyle.width)
-                                .padding(start = NuvioTheme.spacing.xxs, end = NuvioTheme.spacing.xxs, top = NuvioTheme.spacing.xxs)
-                        )
-                    }
                 }
             }
         }

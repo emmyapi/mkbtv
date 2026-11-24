@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.poster.withCustomPosterUrl
 import com.nuvio.tv.core.poster.withCustomPosterUrls
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbMovieCollection
@@ -17,6 +18,7 @@ import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.repository.CinemetaRelatedService
 import com.nuvio.tv.data.repository.ImdbEpisodeRatingsRepository
 import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.data.repository.TraktCommentsService
@@ -29,6 +31,7 @@ import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -41,6 +44,8 @@ import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.mediaserver.ServerItemRef
+import com.nuvio.tv.data.trailer.TrailerDisplayCapabilities
+import com.nuvio.tv.data.trailer.TrailerPlaybackSource
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.core.util.withAppLocale
 import com.nuvio.tv.core.util.isUnreleased
@@ -48,6 +53,7 @@ import com.nuvio.tv.core.util.selectEpisodeReleaseValue
 import java.time.LocalDate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -67,6 +73,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -104,6 +111,8 @@ class MetaDetailsViewModel @Inject constructor(
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktCommentsService: TraktCommentsService,
+    private val searchArtwork: com.nuvio.tv.data.repository.NuvioCatalogArtwork,
+    private val cinemetaRelatedService: CinemetaRelatedService,
     private val traktRelatedService: TraktRelatedService,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val simklRelatedService: com.nuvio.tv.data.simkl.SimklRelatedService,
@@ -142,6 +151,8 @@ class MetaDetailsViewModel @Inject constructor(
 
     private var idleTimerJob: Job? = null
     private var trailerFetchJob: Job? = null
+    private var fullscreenTrailerJob: Job? = null
+    private var fullscreenTrailerAttempt = 0L
     private var moreLikeThisJob: Job? = null
     private var collectionJob: Job? = null
 
@@ -278,28 +289,8 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun setTrailerPlaybackState(
-        isPlaying: Boolean,
-        showControls: Boolean,
-        hideLogo: Boolean,
-        isBackgroundPlaying: Boolean = false
-    ) {
-        _uiState.update { state ->
-            if (state.isTrailerPlaying == isPlaying &&
-                state.isBackgroundTrailerPlaying == isBackgroundPlaying &&
-                state.showTrailerControls == showControls &&
-                state.hideLogoDuringTrailer == hideLogo
-            ) {
-                state
-            } else {
-                state.copy(
-                    isTrailerPlaying = isPlaying,
-                    isBackgroundTrailerPlaying = isBackgroundPlaying,
-                    showTrailerControls = showControls,
-                    hideLogoDuringTrailer = hideLogo
-                )
-            }
-        }
+    private fun setTrailerPlaybackState(isPlaying: Boolean, isBackgroundPlaying: Boolean = false) {
+        _uiState.update { it.copy(isTrailerPlaying = isPlaying, isBackgroundTrailerPlaying = isBackgroundPlaying) }
     }
 
     private fun updateNextToWatch(nextToWatch: NextToWatch) {
@@ -336,6 +327,7 @@ class MetaDetailsViewModel @Inject constructor(
     private fun observeTrailerAutoplaySettings() {
         viewModelScope.launch {
             trailerSettingsDataStore.settings.collectLatest { settings ->
+                val justEnabled = settings.enabled && !trailerAutoplayEnabled
                 trailerAutoplayEnabled = settings.enabled
                 trailerDelayMs = settings.delaySeconds * 1000L
                 trailerPlayInBackground = settings.playInBackground
@@ -348,6 +340,10 @@ class MetaDetailsViewModel @Inject constructor(
                 }
                 if (!settings.enabled) {
                     idleTimerJob?.cancel()
+                    setTrailerPlaybackState(isPlaying = false)
+                } else if (justEnabled && _uiState.value.meta != null && !trailerHasPlayed &&
+                    trailerFetchJob?.isActive != true && _uiState.value.trailerUrl == null) {
+                    fetchTrailerUrl()
                 }
             }
         }
@@ -370,12 +366,19 @@ class MetaDetailsViewModel @Inject constructor(
             MetaDetailsEvent.OnBackPress -> { /* Handle in screen */ }
             MetaDetailsEvent.OnUserInteraction -> handleUserInteraction()
             MetaDetailsEvent.OnPlayButtonFocused -> handlePlayButtonFocused()
-            MetaDetailsEvent.OnTrailerButtonClick -> handleTrailerButtonClick()
+            is MetaDetailsEvent.OnTrailerButtonClick -> playManualTrailer(event.display)
             MetaDetailsEvent.OnTrailerEnded -> handleTrailerEnded()
             MetaDetailsEvent.OnTrailerBackPress -> handleTrailerBackPress()
-            is MetaDetailsEvent.OnSharedTrailerSelected -> handleSharedTrailerSelected(event.trailer)
-            MetaDetailsEvent.OnDismissSharedTrailer -> dismissSharedTrailerOverlay()
-            MetaDetailsEvent.OnRetrySharedTrailer -> retrySharedTrailer()
+            is MetaDetailsEvent.OnSharedTrailerSelected -> playManualTrailer(event.display, event.trailer)
+            is MetaDetailsEvent.OnDismissSharedTrailer -> dismissSharedTrailerOverlay(event.resumeAtMs)
+            MetaDetailsEvent.OnRetrySharedTrailer -> _uiState.value.fullscreenTrailer?.let {
+                it.source?.let(trailerService::invalidateFullscreenSource)
+                val failures = it.source?.let { source -> it.failedSources + source }.orEmpty()
+                playManualTrailer(it.display, it.selectedTrailer, failures)
+            }
+            MetaDetailsEvent.OnOpenTrailerInYouTube -> _uiState.value.fullscreenTrailer?.watchUrl?.let {
+                openExternalTrailer(it, preferYouTubeApp = true)
+            }
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
@@ -750,6 +753,8 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun loadMeta() {
+        fullscreenTrailerJob?.cancel()
+        trailerFetchJob?.cancel()
         viewModelScope.launch {
             cancelCommentsRequests()
             val mdbListSettings = mdbListSettingsDataStore.settings.first()
@@ -778,12 +783,8 @@ class MetaDetailsViewModel @Inject constructor(
                     commentsMode = CommentsMode.TITLE,
                     commentsEpisodeTarget = null,
                     selectedComment = null,
-                    isSharedTrailerOverlayVisible = false,
-                    isSharedTrailerLoading = false,
-                    sharedTrailerUrl = null,
-                    sharedTrailerAudioUrl = null,
-                    sharedTrailerErrorMessage = null,
-                    selectedSharedTrailer = null
+                    trailerWatchUrl = null,
+                    fullscreenTrailer = null
                 )
             }
 
@@ -1022,7 +1023,6 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
-        if (!isServerItem) loadMoreLikeThisAsync(meta)
         val enriched = if (isServerItem) meta else enrichMeta(meta)
 
         syncEffectiveContentId(enriched)
@@ -1038,6 +1038,7 @@ class MetaDetailsViewModel @Inject constructor(
             initialNextToWatch = cachedNextToWatch
         )
 
+        loadMoreLikeThisAsync(enriched)
         val contentId = _effectiveContentId.value
 
         // Ratings don't depend on watch progress, so start them before the remote
@@ -1289,86 +1290,56 @@ class MetaDetailsViewModel @Inject constructor(
     private fun loadMoreLikeThisAsync(meta: Meta) {
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
-            val source = when {
+            val settings = tmdbSettingsDataStore.settings.first()
+            val selectedSource = when {
+                isServerItem -> null
                 shouldLoadSimklMoreLikeThis() -> MoreLikeThisSource.SIMKL
                 shouldLoadTraktMoreLikeThis(meta) -> MoreLikeThisSource.TRAKT
-                else -> {
-                    val settings = tmdbSettingsDataStore.settings.first()
-                    if (!shouldLoadMoreLikeThis(settings)) {
-                        _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
-                        return@launch
-                    }
-                    MoreLikeThisSource.TMDB
-                }
+                settings.enabled && settings.useMoreLikeThis && tmdbService.apiKey().isNotBlank() -> MoreLikeThisSource.TMDB
+                else -> null
             }
-
-            val rawRecommendations = when (source) {
-                MoreLikeThisSource.TRAKT -> {
-                    runCatching {
-                        traktRelatedService.getRelated(
-                            meta = meta,
-                            fallbackItemId = itemId,
-                            fallbackItemType = itemType
-                        )
-                    }.getOrElse {
-                        Log.w(TAG, "Failed to load Trakt related titles for ${meta.id}: ${it.message}")
-                        emptyList()
+            val excludedIds = setOfNotNull(meta.id, meta.imdbId, itemId, _effectiveContentId.value)
+            val preferred = try {
+                withTimeoutOrNull(8_000) {
+                    when (selectedSource) {
+                        MoreLikeThisSource.TRAKT -> traktRelatedService.getRelated(meta, itemId, itemType)
+                        MoreLikeThisSource.SIMKL -> simklRelatedService.getRelated(meta, itemId, itemType)
+                        MoreLikeThisSource.TMDB -> {
+                            val type = resolveTmdbContentType(meta)
+                            val tmdbId = tmdbService.ensureTmdbId(meta.id, type.toApiString(), fallbackImdbId = meta.imdbId)
+                                ?: tmdbService.ensureTmdbId(itemId, itemType, fallbackImdbId = meta.imdbId)
+                            tmdbId?.let { tmdbMetadataService.fetchMoreLikeThis(it, type, settings.language) }.orEmpty()
+                        }
+                        null -> emptyList()
                     }
-                }
-
-                MoreLikeThisSource.SIMKL -> {
-                    runCatching {
-                        simklRelatedService.getRelated(
-                            meta = meta,
-                            fallbackItemId = itemId,
-                            fallbackItemType = itemType
-                        )
-                    }.getOrElse {
-                        Log.w(TAG, "Failed to load Simkl related titles for ${meta.id}: ${it.message}")
-                        emptyList()
-                    }
-                }
-
-                MoreLikeThisSource.TMDB -> {
-                    val settings = tmdbSettingsDataStore.settings.first()
-                    val tmdbContentType = resolveTmdbContentType(meta)
-                    val tmdbLookupType = tmdbContentType.toApiString()
-                    val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType, fallbackImdbId = meta.imdbId)
-                        ?: tmdbService.ensureTmdbId(itemId, itemType, fallbackImdbId = meta.imdbId)
-                    if (tmdbId.isNullOrBlank()) {
-                        _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
-                        return@launch
-                    }
-
-                    runCatching {
-                        tmdbMetadataService.fetchMoreLikeThis(
-                            tmdbId = tmdbId,
-                            contentType = tmdbContentType,
-                            language = settings.language
-                        )
-                    }.getOrElse {
-                        Log.w(TAG, "Failed to load More like this for ${meta.id}: ${it.message}")
-                        emptyList()
-                    }
-                }
-            }
-
+                }.orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load related titles from $selectedSource", e)
+                emptyList<MetaPreview>()
+            }.filter { it.id !in excludedIds && it.imdbId !in excludedIds && !it.poster.isNullOrBlank() }
+                .filterNot { hideUnreleasedContent && it.isUnreleased(LocalDate.now()) }
+                .distinctBy { it.imdbId ?: it.id }
+            val rawRecommendations = if (preferred.isEmpty() && settings.useMoreLikeThis) {
+                cinemetaRelatedService.related(meta, excludedIds, hideUnreleasedContent)
+            } else preferred
             val pattern = layoutPreferenceDataStore.customPosterUrlPattern.first()
             val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
-            val recommendations = if (hideUnreleasedContent) {
-                val today = LocalDate.now()
-                rawRecommendations.filterNot { it.isUnreleased(today) }
-            } else {
-                rawRecommendations
+            val recommendations = rawRecommendations.map { item ->
+                if (item.posterShape == com.nuvio.tv.domain.model.PosterShape.LANDSCAPE && !item.rawPosterUrl.isNullOrBlank()) {
+                    item.copy(poster = item.rawPosterUrl, posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER)
+                } else item
             }.withCustomPosterUrls(
-                com.nuvio.tv.core.poster.patternForScreen(pattern, com.nuvio.tv.core.poster.CustomPosterScreen.DETAILS, enabledScreens)
+                com.nuvio.tv.core.poster.patternForScreen(pattern, com.nuvio.tv.core.poster.CustomPosterScreen.SEARCH, enabledScreens)
             )
 
+            ensureActive()
             _uiState.update { state ->
-                if (state.meta == null || state.meta.id == meta.id) {
+                if (state.meta?.id == meta.id) {
                     state.copy(
                         moreLikeThis = recommendations,
-                        moreLikeThisSource = source.takeIf { recommendations.isNotEmpty() }
+                        moreLikeThisSource = selectedSource.takeIf { preferred.isNotEmpty() }
                     )
                 } else {
                     state
@@ -1377,8 +1348,25 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun shouldLoadMoreLikeThis(settings: TmdbSettings): Boolean {
-        return settings.enabled && settings.useMoreLikeThis
+    suspend fun loadRecommendationArtwork(item: MetaPreview) {
+        val artwork = try {
+            searchArtwork.resolve(item)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return
+        val pattern = com.nuvio.tv.core.poster.patternForScreen(
+            layoutPreferenceDataStore.customPosterUrlPattern.first(),
+            com.nuvio.tv.core.poster.CustomPosterScreen.SEARCH,
+            layoutPreferenceDataStore.customPosterEnabledScreens.first()
+        )
+        val enriched = artwork.withCustomPosterUrl(pattern)
+        if (item == enriched) return
+        _uiState.update { state ->
+            val index = state.moreLikeThis.indexOf(item)
+            if (index < 0) state else state.copy(moreLikeThis = state.moreLikeThis.toMutableList().apply { set(index, enriched) })
+        }
     }
 
     private fun shouldLoadTraktMoreLikeThis(meta: Meta): Boolean {
@@ -2850,43 +2838,32 @@ class MetaDetailsViewModel @Inject constructor(
                 if (state.isTrailerLoading) state else state.copy(isTrailerLoading = true)
             }
 
-            val year = meta.releaseInfo?.let { info ->
-                if (info.isBlank()) null
-                else Regex("""\b(19|20)\d{2}\b""").find(info)?.value
-            }
+            val settings = tmdbSettingsDataStore.settings.first()
+            val inApp = AppFeaturePolicy.inAppTrailerPlaybackEnabled
+            val previewId = meta.trailerYtIds.firstNotNullOfOrNull(trailerService::extractYouTubeVideoId)
+            val catalogId = if (inApp) {
+                trailerService.rankedFullscreenIds(meta.trailers, meta.trailerYtIds, settings.language).firstOrNull()
+            } else previewId
+            val catalogUrl = catalogId?.let(::youtubeWatchUrl)
+            if (inApp && catalogUrl != null) _uiState.update { it.copy(trailerWatchUrl = catalogUrl) }
 
-            val tmdbId = try {
-                tmdbService.ensureTmdbId(meta.id, meta.apiType, fallbackImdbId = meta.imdbId)
-            } catch (_: Exception) {
-                null
-            }
+            val previewEnabled = inApp && trailerSettingsDataStore.settings.first().enabled
+            val tmdbId = if (settings.useTrailers && (previewEnabled || catalogUrl == null || !inApp)) trailerTmdbId(meta) else null
+            val watchUrl = if (catalogUrl == null || !inApp) {
+                trailerService.getExternalTrailerUrl(tmdbId, meta.apiType)?.let(trailerService::extractYouTubeVideoId)
+                    ?.let(::youtubeWatchUrl) ?: catalogUrl
+            } else catalogUrl
+            ensureActive()
+            _uiState.update { it.copy(trailerWatchUrl = watchUrl) }
 
-            val source = if (AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
-                trailerService.getTrailerPlaybackSource(
-                    title = meta.name,
-                    year = year,
-                    tmdbId = tmdbId,
-                    type = meta.apiType
-                ) ?: meta.trailerYtIds.firstOrNull()?.let { ytId ->
-                    trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
-                        youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
-                        title = meta.name,
-                        year = year
-                    )
-                }
-            } else {
-                val externalUrl = if (AppFeaturePolicy.externalTrailerPlaybackEnabled) {
-                    trailerService.getExternalTrailerUrl(
-                        tmdbId = tmdbId,
-                        type = meta.apiType
-                    ) ?: meta.trailerYtIds.firstOrNull()?.let { ytId ->
-                        "https://www.youtube.com/watch?v=$ytId"
+            // With autoplay off, discovery stops at a catalog link until the viewer presses Play.
+            val source = if (previewEnabled && _uiState.value.fullscreenTrailer == null) {
+                val year = meta.releaseInfo?.let { Regex("""\b(19|20)\d{2}\b""").find(it)?.value }
+                trailerService.getTrailerPlaybackSource(meta.name, year, tmdbId, meta.apiType)
+                    ?: (previewId?.let(::youtubeWatchUrl) ?: catalogUrl)?.let {
+                        trailerService.getTrailerPlaybackSourceFromYouTubeUrl(it, meta.name, year)
                     }
-                } else {
-                    null
-                }
-                externalUrl?.let { com.nuvio.tv.data.trailer.TrailerPlaybackSource(videoUrl = it) }
-            }
+            } else null
             val url = source?.videoUrl
             val audioUrl = source?.audioUrl
 
@@ -2900,6 +2877,7 @@ class MetaDetailsViewModel @Inject constructor(
                     state.copy(
                         trailerUrl = url,
                         trailerAudioUrl = audioUrl,
+                        previewStartPositionMs = 0L,
                         isTrailerLoading = false
                     )
                 }
@@ -2916,7 +2894,8 @@ class MetaDetailsViewModel @Inject constructor(
         if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
 
         val state = _uiState.value
-        if (state.trailerUrl == null || state.isTrailerPlaying || state.isBackgroundTrailerPlaying) return
+        if (state.fullscreenTrailer != null || state.trailerUrl == null ||
+            state.isTrailerPlaying || state.isBackgroundTrailerPlaying) return
         if (!trailerAutoplayEnabled) return
         if (trailerHasPlayed) return
         if (!isPlayButtonFocused) return
@@ -2925,8 +2904,6 @@ class MetaDetailsViewModel @Inject constructor(
             delay(trailerDelayMs)
             setTrailerPlaybackState(
                 isPlaying = !trailerPlayInBackground,
-                showControls = false,
-                hideLogo = false,
                 isBackgroundPlaying = trailerPlayInBackground
             )
         }
@@ -2940,7 +2917,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun handleUserInteraction() {
         val state = _uiState.value
-        val shouldStopAutoTrailer = state.isTrailerPlaying && !state.showTrailerControls
+        val shouldStopAutoTrailer = state.isTrailerPlaying
         val hasActiveIdleTimer = idleTimerJob?.isActive == true
         if (!isPlayButtonFocused && !hasActiveIdleTimer && !shouldStopAutoTrailer) {
             return
@@ -2951,11 +2928,7 @@ class MetaDetailsViewModel @Inject constructor(
 
         if (shouldStopAutoTrailer) {
             trailerHasPlayed = true
-            setTrailerPlaybackState(
-                isPlaying = false,
-                showControls = false,
-                hideLogo = false
-            )
+            setTrailerPlaybackState(isPlaying = false)
         }
     }
 
@@ -2964,36 +2937,16 @@ class MetaDetailsViewModel @Inject constructor(
         isPlayButtonFocused = false
         dismissSharedTrailerOverlay()
         val state = _uiState.value
-        if ((state.isTrailerPlaying && !state.showTrailerControls) || state.isBackgroundTrailerPlaying) {
+        if (state.isTrailerPlaying || state.isBackgroundTrailerPlaying) {
             trailerHasPlayed = true
-            setTrailerPlaybackState(isPlaying = false, showControls = false, hideLogo = false)
+            setTrailerPlaybackState(isPlaying = false)
         }
-    }
-
-    private fun handleTrailerButtonClick() {
-        val state = _uiState.value
-        if (state.trailerUrl.isNullOrBlank()) return
-        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
-            openExternalTrailer(state.trailerUrl)
-            return
-        }
-        idleTimerJob?.cancel()
-        isPlayButtonFocused = false
-        setTrailerPlaybackState(
-            isPlaying = true,
-            showControls = true,
-            hideLogo = true
-        )
     }
 
     private fun handleTrailerEnded() {
         trailerHasPlayed = true
         isPlayButtonFocused = false
-        setTrailerPlaybackState(
-            isPlaying = false,
-            showControls = false,
-            hideLogo = false
-        )
+        setTrailerPlaybackState(isPlaying = false)
     }
 
     private fun handleTrailerBackPress() {
@@ -3012,106 +2965,128 @@ class MetaDetailsViewModel @Inject constructor(
         idleTimerJob?.cancel()
         setTrailerPlaybackState(
             isPlaying = false,
-            showControls = false,
-            hideLogo = false,
             isBackgroundPlaying = true
         )
     }
 
-    private fun handleSharedTrailerSelected(trailer: MetaTrailer) {
-        val ytId = trailer.ytId?.trim().orEmpty()
-        if (ytId.isBlank()) {
-            _uiState.update { state ->
-                state.copy(
-                    isSharedTrailerOverlayVisible = true,
-                    isSharedTrailerLoading = false,
-                    sharedTrailerUrl = null,
-                    sharedTrailerAudioUrl = null,
-                    sharedTrailerErrorMessage = localizedContext.getString(R.string.detail_trailer_error),
-                    selectedSharedTrailer = trailer
-                )
-            }
+    private fun youtubeWatchUrl(id: String): String = "https://www.youtube.com/watch?v=$id"
+
+    private suspend fun trailerTmdbId(meta: Meta): String? = try {
+        tmdbService.ensureTmdbId(meta.id, meta.apiType, fallbackImdbId = meta.imdbId)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun playManualTrailer(
+        display: TrailerDisplayCapabilities,
+        selected: MetaTrailer? = null,
+        failedSources: List<TrailerPlaybackSource> = emptyList()
+    ) {
+        val state = _uiState.value
+        val meta = state.meta ?: return
+        val selectedId = selected?.ytId?.let(trailerService::extractYouTubeVideoId)
+        val watchUrl = if (selected == null) state.trailerWatchUrl else selectedId?.let(::youtubeWatchUrl)
+        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
+            if (AppFeaturePolicy.externalTrailerPlaybackEnabled && watchUrl != null) openExternalTrailer(watchUrl)
             return
         }
 
-        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled && AppFeaturePolicy.externalTrailerPlaybackEnabled) {
-            openExternalTrailer("https://www.youtube.com/watch?v=$ytId")
-            return
-        }
-
+        fullscreenTrailerJob?.cancel()
+        trailerFetchJob?.cancel()
         idleTimerJob?.cancel()
         isPlayButtonFocused = false
-        if (_uiState.value.isTrailerPlaying || _uiState.value.isBackgroundTrailerPlaying) {
-            setTrailerPlaybackState(
-                isPlaying = false,
-                showControls = false,
-                hideLogo = false
+        trailerHasPlayed = true
+        val request = FullscreenTrailerState(
+            attempt = ++fullscreenTrailerAttempt, display = display, selectedTrailer = selected,
+            watchUrl = watchUrl, failedSources = failedSources
+        )
+        _uiState.update {
+            it.copy(
+                fullscreenTrailer = request,
+                isTrailerPlaying = false,
+                isBackgroundTrailerPlaying = false,
+                isTrailerLoading = false
             )
         }
-
-        _uiState.update { state ->
-            state.copy(
-                isSharedTrailerOverlayVisible = true,
-                isSharedTrailerLoading = true,
-                sharedTrailerUrl = null,
-                sharedTrailerAudioUrl = null,
-                sharedTrailerErrorMessage = null,
-                selectedSharedTrailer = trailer
-            )
-        }
-
-        viewModelScope.launch {
-            val meta = _uiState.value.meta
-            val year = meta?.releaseInfo?.let { info ->
-                if (info.isBlank()) null else Regex("""\b(19|20)\d{2}\b""").find(info)?.value
-            }
-            val source = trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
-                youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
-                title = meta?.name,
-                year = year
-            )
-
-            _uiState.update { state ->
-                if (state.selectedSharedTrailer?.ytId != trailer.ytId) {
-                    state
-                } else {
-                    state.copy(
-                        isSharedTrailerOverlayVisible = true,
-                        isSharedTrailerLoading = false,
-                        sharedTrailerUrl = source?.videoUrl,
-                        sharedTrailerAudioUrl = source?.audioUrl,
-                        sharedTrailerErrorMessage = if (source == null) {
-                            localizedContext.getString(R.string.detail_trailer_error)
-                        } else {
-                            null
-                        }
+        fullscreenTrailerJob = viewModelScope.launch {
+            val source = try {
+                withTimeoutOrNull(90_000L) {
+                    val tmdbEnabled = selected == null && tmdbSettingsDataStore.settings.first().useTrailers
+                    val ids = if (selected == null) {
+                        meta.trailerYtIds + listOfNotNull(watchUrl?.let(trailerService::extractYouTubeVideoId))
+                    } else listOfNotNull(selectedId)
+                    trailerService.getFullscreenYouTubeTrailer(
+                        tmdbId = if (tmdbEnabled) trailerTmdbId(meta) else null,
+                        type = meta.apiType,
+                        trailerYtIds = ids,
+                        display = display,
+                        trailers = if (selected == null) meta.trailers else emptyList(),
+                        failedSources = failedSources
                     )
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w(TAG, "Fullscreen trailer lookup failed (${failure.javaClass.simpleName})")
+                null
+            }
+            ensureActive()
+            _uiState.update { current ->
+                if (current.fullscreenTrailer !== request) current
+                else current.copy(
+                    fullscreenTrailer = request.copy(
+                        source = source,
+                        watchUrl = source?.youtubeVideoId?.let(::youtubeWatchUrl) ?: watchUrl,
+                        failed = source == null
+                    )
+                )
             }
         }
     }
 
-    private fun openExternalTrailer(url: String) {
-        runCatching {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+    private fun openExternalTrailer(url: String, preferYouTubeApp: Boolean = false) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val packages = if (preferYouTubeApp) listOf(
+            "com.google.android.youtube.tv", "com.google.android.youtube", "io.gh.reisxd.tizentube.cobalt"
+        ) else emptyList()
+        for (packageName in packages) {
+            try {
+                context.startActivity(Intent(intent).setPackage(packageName))
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Try the next installed handler.
+            } catch (_: SecurityException) {
+                // An installed client may not export its watch activity.
+            }
+        }
+        runCatching { context.startActivity(intent) }.onFailure {
+            dismissSharedTrailerOverlay()
+            showMessage(localizedContext.getString(R.string.player_stream_error_open_external_link_failed), isError = true)
         }
     }
 
-    private fun retrySharedTrailer() {
-        _uiState.value.selectedSharedTrailer?.let(::handleSharedTrailerSelected)
-    }
+    private fun dismissSharedTrailerOverlay(resumeAtMs: Long? = null) {
+        val trailer = _uiState.value.fullscreenTrailer
+        fullscreenTrailerJob?.cancel()
+        _uiState.update { it.copy(fullscreenTrailer = null) }
 
-    private fun dismissSharedTrailerOverlay() {
-        _uiState.update { state ->
-            state.copy(
-                isSharedTrailerOverlayVisible = false,
-                isSharedTrailerLoading = false,
-                sharedTrailerUrl = null,
-                sharedTrailerAudioUrl = null,
-                sharedTrailerErrorMessage = null
-            )
+        // Back can hand the same upload and position to the inexpensive preview player.
+        val id = trailer?.source?.youtubeVideoId ?: return
+        if (resumeAtMs == null || trailer.selectedTrailer != null ||
+            !shouldContinueTrailerInBackgroundOnBack(true, trailerAutoplayEnabled, trailerPlayInBackground)) return
+        fullscreenTrailerJob = viewModelScope.launch {
+            val preview = trailerService.getTrailerPlaybackSourceFromYouTubeUrl(youtubeWatchUrl(id)) ?: return@launch
+            ensureActive()
+            if (trailerAutoplayEnabled && trailerPlayInBackground) {
+                _uiState.update { state -> state.copy(
+                    trailerUrl = preview.videoUrl,
+                    trailerAudioUrl = preview.audioUrl,
+                    previewStartPositionMs = resumeAtMs,
+                    isBackgroundTrailerPlaying = true
+                ) }
+            }
         }
     }
 
@@ -3130,7 +3105,16 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         existing.forEach { trailer -> merged.putIfAbsent(keyOf(trailer), trailer) }
-        incoming.forEach { trailer -> merged.putIfAbsent(keyOf(trailer), trailer) }
+        incoming.forEach { trailer ->
+            val key = keyOf(trailer)
+            val previous = merged[key]
+            merged[key] = previous?.copy(
+                name = trailer.name?.takeIf { it.isNotBlank() } ?: previous.name,
+                type = trailer.type?.takeIf { it.isNotBlank() } ?: previous.type,
+                lang = trailer.lang?.takeIf { it.isNotBlank() } ?: previous.lang,
+                official = trailer.official ?: previous.official
+            ) ?: trailer
+        }
         return merged.values.toList()
     }
 

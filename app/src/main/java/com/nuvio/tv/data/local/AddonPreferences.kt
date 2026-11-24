@@ -239,7 +239,7 @@ class AddonPreferences @Inject constructor(
     }
 
     private fun getDefaultAddons(): Set<String> = setOf(
-        "https://v3-cinemeta.strem.io",
+        com.nuvio.tv.data.repository.CINEMETA_BASE_URL,
         "https://opensubtitles-v3.strem.io"
     )
 }

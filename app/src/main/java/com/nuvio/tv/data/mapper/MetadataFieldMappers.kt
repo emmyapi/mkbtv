@@ -12,6 +12,12 @@ import com.nuvio.tv.domain.model.MetaReleaseDate
 import com.nuvio.tv.domain.model.MetaReleaseDateCountry
 import com.nuvio.tv.domain.model.MetaTrailer
 
+internal fun parsePopularity(value: Any?): Double? = when (value) {
+    is Number -> value.toDouble()
+    is String -> value.toDoubleOrNull()
+    else -> null
+}?.takeIf { it.isFinite() && it >= 0 }
+
 internal fun coerceStringList(value: Any?): List<String> {
     return when (value) {
         null -> emptyList()
@@ -65,8 +71,9 @@ internal fun mapTrailers(
             source = it.source?.takeIf(String::isNotBlank),
             type = it.type?.takeIf(String::isNotBlank),
             name = it.name?.takeIf(String::isNotBlank),
-            ytId = (it.source ?: it.ytId)?.takeIf(String::isNotBlank),
-            lang = it.lang?.takeIf(String::isNotBlank)
+            ytId = it.ytId?.takeIf(String::isNotBlank) ?: it.source?.takeIf(String::isNotBlank),
+            lang = it.lang?.takeIf(String::isNotBlank),
+            official = it.official
         )
     }
     val existingYtIds = fromTrailers.mapNotNull { it.ytId }.toSet()

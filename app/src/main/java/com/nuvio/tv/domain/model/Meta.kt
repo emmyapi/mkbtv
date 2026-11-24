@@ -45,7 +45,8 @@ data class Meta(
     val hasLandscapePoster: Boolean? = null,
     val hasLogo: Boolean? = null,
     val hasLinks: Boolean? = null,
-    val hasVideos: Boolean? = null
+    val hasVideos: Boolean? = null,
+    val popularity: Double? = null
 ) {
     val apiType: String
         get() = type.toApiString(rawType)
@@ -220,7 +221,8 @@ data class MetaTrailer(
     val type: String? = null,
     val name: String? = null,
     val ytId: String? = null,
-    val lang: String? = null
+    val lang: String? = null,
+    val official: Boolean? = null
 )
 
 @Immutable

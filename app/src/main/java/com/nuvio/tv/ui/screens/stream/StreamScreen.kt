@@ -93,6 +93,7 @@ import coil3.compose.AsyncImage
 import com.nuvio.tv.core.streams.StreamBadgePlacement
 import com.nuvio.tv.core.streams.StreamBadgeSettings
 import com.nuvio.tv.data.local.PlayerPreference
+import com.nuvio.tv.domain.model.HOUSEHOLD_ADDON
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.ui.components.SourceChipItem
 import com.nuvio.tv.ui.components.SourceChipStatus
@@ -298,7 +299,7 @@ fun StreamScreen(
             viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
             return@LaunchedEffect
         }
-        val playbackInfo = viewModel.resolveStreamForPlayback(stream)
+        val playbackInfo = viewModel.resolveAutoPlayForPlayback(stream)
         if (playbackInfo == null) {
             viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
             return@LaunchedEffect
@@ -467,7 +468,10 @@ fun StreamScreen(
                     error = uiState.error,
                     streams = uiState.filteredStreams,
                     availableAddons = uiState.availableAddons,
-                    sourceChips = uiState.sourceChips,
+                    sourceChips = uiState.sourceChips.filterNot {
+                        it.name == HOUSEHOLD_ADDON && it.status == SourceChipStatus.SUCCESS &&
+                            HOUSEHOLD_ADDON !in uiState.availableAddons
+                    },
                     selectedAddonFilter = uiState.selectedAddonFilter,
                     showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
                     showAddonLogo = streamBadgeSettings.showAddonLogo,
@@ -501,7 +505,7 @@ fun StreamScreen(
                         scope.coroutineLaunch {
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream)
                             if (playbackInfo != null) {
-                                viewModel.persistBingeGroupForStream(stream)
+                                viewModel.persistManualSelection(stream)
                                 pendingRestoreOnResume = true
                                 routePlayback(playbackInfo)
                                 viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)

@@ -9,6 +9,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import com.nuvio.tv.data.trailer.TrailerDisplayCapabilities
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
@@ -55,6 +56,7 @@ class TrailerPlayerPool @Inject constructor(
     }
 
     private var _player: ExoPlayer? = null
+    private var fullscreenPlayer: ExoPlayer? = null
     private val yielded = AtomicBoolean(false)
     private val released = AtomicBoolean(false)
     private val settingsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -110,6 +112,24 @@ class TrailerPlayerPool @Inject constructor(
         return player
     }
 
+    /** A manual trailer owns its decoder and selector only while its fullscreen surface is open. */
+    fun acquireFullscreen(display: TrailerDisplayCapabilities): ExoPlayer? {
+        if (released.get()) return null
+        fullscreenPlayer?.let(::releaseFullscreen)
+        return createPlayer(display).also { fullscreenPlayer = it }
+    }
+
+    fun releaseFullscreen(player: ExoPlayer) {
+        if (fullscreenPlayer !== player) return
+        fullscreenPlayer = null
+        player.release()
+        updatePlayingState()
+    }
+
+    private fun updatePlayingState() {
+        _isTrailerPlaying.value = _player?.isPlaying == true || fullscreenPlayer?.isPlaying == true
+    }
+
     // Caps HLS variants; adaptive YouTube streams are already capped by the extractor.
     private fun applyVideoSizeCap(player: ExoPlayer) {
         val maxHeight = TrailerVideoPolicy.maxTrailerVideoHeight(cachedAllow4k)
@@ -134,7 +154,7 @@ class TrailerPlayerPool @Inject constructor(
                 player.clearMediaItems()
             }
         }
-        _isTrailerPlaying.value = false
+        updatePlayingState()
     }
 
     /**
@@ -144,13 +164,14 @@ class TrailerPlayerPool @Inject constructor(
     fun yield() {
         if (yielded.compareAndSet(false, true)) {
             Log.d(TAG, "Yielding trailer player for detail playback")
-            _isTrailerPlaying.value = false
+            fullscreenPlayer?.let(::releaseFullscreen)
             _player?.let { player ->
                 runCatching { player.stop() }
                 runCatching { player.clearMediaItems() }
                 runCatching { player.release() }
             }
             _player = null
+            updatePlayingState()
         }
     }
 
@@ -170,6 +191,7 @@ class TrailerPlayerPool @Inject constructor(
      */
     fun release() {
         if (released.compareAndSet(false, true)) {
+            fullscreenPlayer?.let(::releaseFullscreen)
             _isTrailerPlaying.value = false
             _player?.let { player ->
                 runCatching { player.stop() }
@@ -180,12 +202,12 @@ class TrailerPlayerPool @Inject constructor(
         }
     }
 
-    private fun createPlayer(): ExoPlayer {
+    private fun createPlayer(fullscreen: TrailerDisplayCapabilities? = null): ExoPlayer {
         val forceNative = cachedForceNative
         val targetBufferMb = trailerTargetBufferMb(cachedPlayerSettings)
         Log.d(
             TAG,
-            "Creating shared trailer ExoPlayer instance with forceNativeAllocation = $forceNative, " +
+            "Creating trailer player (fullscreen=${fullscreen != null}) with forceNativeAllocation = $forceNative, " +
                 "targetBufferMb = $targetBufferMb"
         )
         val loadControlBuilder = DefaultLoadControl.Builder()
@@ -210,13 +232,14 @@ class TrailerPlayerPool @Inject constructor(
         }
         val loadControl = loadControlBuilder.build()
         val trackSelector = DefaultTrackSelector(context).apply {
-            setParameters(
-                buildUponParameters()
-                    .setMaxVideoSizeSd()
-                    .clearVideoSizeConstraints()
-                    .setForceHighestSupportedBitrate(true)
-                    .setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE)
-            )
+            val params = buildUponParameters().setForceHighestSupportedBitrate(true)
+            if (fullscreen != null) {
+                params.setViewportSize(fullscreen.maxWidth, fullscreen.maxHeight, false)
+                    .setMaxVideoSize(fullscreen.maxWidth, fullscreen.maxHeight)
+                    .setExceedVideoConstraintsIfNecessary(false)
+                    .setExceedRendererCapabilitiesIfNecessary(false)
+            }
+            setParameters(params)
         }
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
@@ -232,7 +255,7 @@ class TrailerPlayerPool @Inject constructor(
                 repeatMode = Player.REPEAT_MODE_OFF
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _isTrailerPlaying.value = isPlaying
+                        updatePlayingState()
                     }
                 })
             }

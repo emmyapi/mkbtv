@@ -48,7 +48,8 @@ data class MetaDto(
     @Json(name = "_hasLandscapePoster") val hasLandscapePoster: Boolean? = null,
     @Json(name = "_hasLogo") val hasLogo: Boolean? = null,
     @Json(name = "_hasLinks") val hasLinks: Boolean? = null,
-    @Json(name = "_hasVideos") val hasVideos: Boolean? = null
+    @Json(name = "_hasVideos") val hasVideos: Boolean? = null,
+    @Json(name = "popularity") val popularity: Any? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -105,7 +106,8 @@ data class MetaTrailerDto(
     @Json(name = "type") val type: String? = null,
     @Json(name = "name") val name: String? = null,
     @Json(name = "ytId") val ytId: String? = null,
-    @Json(name = "lang") val lang: String? = null
+    @Json(name = "lang") val lang: String? = null,
+    @Json(name = "official") val official: Boolean? = null
 )
 
 @JsonClass(generateAdapter = true)

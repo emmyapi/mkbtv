@@ -115,7 +115,8 @@ fun BehaviorHintsDto.toDomain(): StreamBehaviorHints = StreamBehaviorHints(
     videoSize = videoSize,
     filename = filename,
     audioDelayMs = audioDelayMs.toStreamAudioDelayMs(),
-    audioDelayLanguage = audioDelayLanguage.toStreamAudioDelayLanguage()
+    audioDelayLanguage = audioDelayLanguage.toStreamAudioDelayLanguage(),
+    nuvioSourceId = nuvioSourceId
 )
 
 fun ProxyHeadersDto.toDomain(): ProxyHeaders = ProxyHeaders(

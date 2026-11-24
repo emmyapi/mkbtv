@@ -501,6 +501,7 @@ fun CatalogRowSection(
                     Card(
                         onClick = onSeeAll,
                         modifier = Modifier
+                            .then(if (catalogRow.items.isEmpty() && entryFocusRequester != null) Modifier.focusRequester(entryFocusRequester) else Modifier)
                             .width(seeAllCardWidth)
                             .height(seeAllCardHeight)
                             .then(directionalFocusModifier),

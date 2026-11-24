@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.search
 
 import android.content.Context
+import com.nuvio.tv.core.tmdb.CastKeywordResults
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.SearchHistoryDataStore
@@ -16,6 +17,7 @@ import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.ui.components.posteroptions.PosterOptionsController
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -428,6 +430,8 @@ class SearchViewModelSuggestionsTest {
         every { layoutPreferences.posterCardCornerRadiusDp } returns flowOf(12)
         every { layoutPreferences.catalogTypeSuffixEnabled } returns flowOf(true)
         every { layoutPreferences.hideUnreleasedContent } returns flowOf(false)
+        every { layoutPreferences.customPosterUrlPattern } returns flowOf("")
+        every { layoutPreferences.customPosterEnabledScreens } returns flowOf(emptySet())
 
         val history = mockk<SearchHistoryDataStore>(relaxed = true)
         every { history.recentSearches } returns flowOf(emptyList())
@@ -446,12 +450,15 @@ class SearchViewModelSuggestionsTest {
                 else -> TitleCatalogRepository(addon, catalogIgnoresQuery)
             },
             metaRepository = mockk(relaxed = true),
-            discoverSelectionDataStore = mockk(relaxed = true),
             layoutPreferenceDataStore = layoutPreferences,
             searchHistoryDataStore = history,
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            searchArtwork = mockk(),
+            discoverSearch = mockk(),
+            profileManager = mockk { every { activeProfileId } returns MutableStateFlow(1) },
+            castKeywordLookup = mockk { coEvery { search(any()) } returns CastKeywordResults() },
             serverCatalog = mockk { every { searchAddons } returns flowOf(emptyList()) },
             context = mockk<Context>(relaxed = true)
         )

@@ -1,6 +1,9 @@
 package com.nuvio.tv.data.trailer
 
+import android.media.MediaCodecInfo.CodecProfileLevel
 import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.ColorInfo
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -36,6 +39,63 @@ internal fun videoCodecMimeType(codecs: String): String? {
  */
 internal object VideoDecoderSupport {
     private val cache = ConcurrentHashMap<String, Boolean>()
+
+    /** Manual selection needs affirmative support for both tracks, including HDR profile support. */
+    @OptIn(UnstableApi::class)
+    fun canPlayFullscreen(source: TrailerPlaybackSource, fps: Int): Boolean {
+        val video = source.videoCodec ?: return false
+        val audio = source.audioCodec ?: return false
+        val videoMime = videoCodecMimeType(video) ?: return false
+        val audioMime = MimeTypes.getMediaMimeType(audio)?.takeIf { MimeTypes.isAudio(it) } ?: return false
+        val audioSupported = cache.getOrPut("audio|$audio") {
+            supportsFormat(Format.Builder().setSampleMimeType(audioMime).setCodecs(audio).build())
+        }
+        if (!audioSupported) return false
+
+        return cache.getOrPut("fullscreen|$video|${source.width}|${source.height}|$fps|${source.transfer}") {
+            val format = Format.Builder()
+                .setSampleMimeType(videoMime)
+                .setCodecs(video)
+                .setWidth(source.width)
+                .setHeight(source.height)
+                .apply {
+                    if (fps > 0) setFrameRate(fps.toFloat())
+                    if (source.transfer.isHdr) {
+                        val transfer = if (source.transfer == TrailerTransfer.HLG) C.COLOR_TRANSFER_HLG else C.COLOR_TRANSFER_ST2084
+                        setColorInfo(ColorInfo.Builder().setColorSpace(C.COLOR_SPACE_BT2020).setColorTransfer(transfer).build())
+                    }
+                }.build()
+            supportsFormat(format, source.transfer)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun supportsFormat(format: Format, transfer: TrailerTransfer = TrailerTransfer.UNKNOWN): Boolean {
+        val mime = format.sampleMimeType ?: return false
+        return try {
+            MediaCodecUtil.getDecoderInfos(mime, false, false).any { decoder ->
+                decoder.isFormatSupported(format) &&
+                    (!transfer.isHdr || decoder.profileLevels.any { supportsHdrProfile(mime, it.profile, transfer) })
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    // Android lists HDR10 separately from plain 10-bit profiles. HLG can use the 10-bit profile.
+    private fun supportsHdrProfile(mime: String, profile: Int, transfer: TrailerTransfer): Boolean =
+        when (mime) {
+            MimeTypes.VIDEO_VP9 -> profile == CodecProfileLevel.VP9Profile2HDR ||
+                profile == CodecProfileLevel.VP9Profile2HDR10Plus ||
+                (transfer == TrailerTransfer.HLG && profile == CodecProfileLevel.VP9Profile2)
+            MimeTypes.VIDEO_H265 -> profile == CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                profile == CodecProfileLevel.HEVCProfileMain10HDR10Plus ||
+                (transfer == TrailerTransfer.HLG && profile == CodecProfileLevel.HEVCProfileMain10)
+            MimeTypes.VIDEO_AV1 -> profile == CodecProfileLevel.AV1ProfileMain10HDR10 ||
+                profile == CodecProfileLevel.AV1ProfileMain10HDR10Plus ||
+                (transfer == TrailerTransfer.HLG && profile == CodecProfileLevel.AV1ProfileMain10)
+            else -> false
+        }
 
     @OptIn(UnstableApi::class)
     fun canDecode(codecs: String, width: Int, height: Int, fps: Int): Boolean =

@@ -3,16 +3,7 @@ package com.nuvio.tv.ui.screens.search
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Bundle
 import android.view.KeyEvent
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.util.Log
-import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -90,9 +81,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -137,8 +127,8 @@ private val NAVIGATION_KEYS = setOf(
 fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     onNavigateToDetail: (String, String, String) -> Unit,
-    onNavigateToSeeAll: (catalogId: String, addonId: String, type: String) -> Unit = { _, _, _ -> },
-    onOpenDiscover: () -> Unit = {}
+    onNavigateToSeeAll: (catalogId: String, addonId: String, type: String, rowKey: String) -> Unit = { _, _, _, _ -> },
+    onOpenDiscover: (String) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
@@ -146,10 +136,6 @@ fun SearchScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val strVoiceNoSpeech = stringResource(R.string.search_voice_no_speech)
-    val strVoiceMicPermission = stringResource(R.string.search_voice_mic_permission)
-    val strVoiceFailed = stringResource(R.string.search_voice_failed)
-    val strVoiceUnavailable = stringResource(R.string.search_voice_unavailable)
     val voiceFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val discoverFirstItemFocusRequester = remember { FocusRequester() }
@@ -163,8 +149,6 @@ fun SearchScreen(
     var pendingFocusMoveToResultsQuery by remember { mutableStateOf<String?>(null) }
     var pendingFocusMoveSawSearching by remember { mutableStateOf(false) }
     var pendingFocusMoveHadExistingSearchRows by remember { mutableStateOf(false) }
-    var isVoiceListening by remember { mutableStateOf(false) }
-    var voiceRmsLevel by remember { mutableStateOf(0f) }
     var discoverFocusedItemIndex by rememberSaveable { mutableStateOf(0) }
     var restoreDiscoverFocus by rememberSaveable { mutableStateOf(false) }
     var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
@@ -176,137 +160,18 @@ fun SearchScreen(
     // lift it: closing the Fire TV keyboard moves focus into the recent searches with no key press,
     // which would otherwise re-enable this handler.
     var backToFieldLatched by remember { mutableStateOf(false) }
-    val onVoiceQueryResultState = rememberUpdatedState<(String) -> Unit> { recognized ->
-        if (recognized.isNotBlank()) {
-            backToFieldLatched = false
-            viewModel.onEvent(SearchEvent.QueryChanged(recognized))
-            viewModel.onEvent(SearchEvent.SubmitSearch)
-            focusResults = false
-            pendingFocusMoveToResultsQuery = recognized
-            pendingFocusMoveSawSearching = false
-            pendingFocusMoveHadExistingSearchRows =
-                uiState.submittedQuery.trim().length >= MIN_SEARCH_QUERY_LENGTH &&
-                    uiState.catalogRows.any { it.items.isNotEmpty() }
-        } else {
-            Toast.makeText(context, strVoiceNoSpeech, Toast.LENGTH_SHORT).show()
-        }
+    val (voice, launchVoiceSearch) = rememberVoiceSearch { recognized ->
+        backToFieldLatched = false
+        viewModel.onEvent(SearchEvent.QueryChanged(recognized))
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        focusResults = false
+        pendingFocusMoveToResultsQuery = recognized
+        pendingFocusMoveSawSearching = false
+        pendingFocusMoveHadExistingSearchRows =
+            uiState.submittedQuery.trim().length >= MIN_SEARCH_QUERY_LENGTH &&
+                uiState.catalogRows.any { it.items.isNotEmpty() }
     }
-    val isVoiceSearchAvailable = remember(context) { SpeechRecognizer.isRecognitionAvailable(context) }
-    val topInputFocusRequester = remember(isVoiceSearchAvailable) {
-        if (isVoiceSearchAvailable) voiceFocusRequester else searchFocusRequester
-    }
-    val speechRecognizer = remember(context, isVoiceSearchAvailable) {
-        if (isVoiceSearchAvailable) {
-            runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-        } else {
-            null
-        }
-    }
-    val buildRecognizeIntent: () -> Intent = {
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-        }
-    }
-    val hasRecordAudioPermission by remember(context) {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-        )
-    }
-    var recordAudioPermissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val requestAudioPermission = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        recordAudioPermissionGranted = granted
-        if (granted) {
-            isVoiceListening = true
-            runCatching {
-                speechRecognizer?.cancel()
-                speechRecognizer?.startListening(buildRecognizeIntent())
-            }.onFailure {
-                isVoiceListening = false
-                Toast.makeText(context, strVoiceUnavailable, Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, strVoiceMicPermission, Toast.LENGTH_SHORT).show()
-        }
-    }
-    LaunchedEffect(hasRecordAudioPermission) {
-        recordAudioPermissionGranted = hasRecordAudioPermission
-    }
-    DisposableEffect(speechRecognizer) {
-        val listener = object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) = Unit
-            override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) {
-                // Normalize RMS dB to 0..1 range. Typical values: -2 (silence) to 10 (loud).
-                voiceRmsLevel = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
-            }
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() = Unit
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
-
-            override fun onError(error: Int) {
-                isVoiceListening = false
-                voiceRmsLevel = 0f
-                Log.w("SearchScreen", "Voice recognition error: $error")
-                when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                        Toast.makeText(context, strVoiceNoSpeech, Toast.LENGTH_SHORT).show()
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
-                    SpeechRecognizer.ERROR_CLIENT -> Unit
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                        Toast.makeText(context, strVoiceMicPermission, Toast.LENGTH_SHORT).show()
-                    else ->
-                        Toast.makeText(context, strVoiceFailed, Toast.LENGTH_SHORT).show()
-                }
-            }
-
-            override fun onResults(results: Bundle?) {
-                isVoiceListening = false
-                voiceRmsLevel = 0f
-                val recognized = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull()
-                    .orEmpty()
-                    .trim()
-                onVoiceQueryResultState.value(recognized)
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) = Unit
-        }
-
-        speechRecognizer?.setRecognitionListener(listener)
-        onDispose {
-            speechRecognizer?.setRecognitionListener(null)
-            speechRecognizer?.destroy()
-        }
-    }
-    val launchVoiceSearch: () -> Unit = {
-        if (!isVoiceSearchAvailable || speechRecognizer == null) {
-            Toast.makeText(context, strVoiceUnavailable, Toast.LENGTH_SHORT).show()
-        } else if (!recordAudioPermissionGranted) {
-            requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
-        } else {
-            isVoiceListening = true
-            runCatching {
-                speechRecognizer.cancel()
-                speechRecognizer.startListening(buildRecognizeIntent())
-            }.onFailure {
-                isVoiceListening = false
-                Toast.makeText(context, strVoiceUnavailable, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    val topInputFocusRequester = if (voice.available) voiceFocusRequester else searchFocusRequester
 
     val posterCardStyle = remember(uiState.posterCardCornerRadiusDp) {
         PosterCardStyle(
@@ -350,10 +215,9 @@ fun SearchScreen(
             it.stableKey()
         }
     }
-    // Stable list of non-empty catalog rows — mirrors ClassicHomeContent's
-    // visibleHomeRows pattern so the LazyColumn receives a remember'd list.
+    // A filtered page can still offer See All to reach later titles.
     val visibleCatalogRows = remember(uiState.catalogRows) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() }
+        uiState.catalogRows.filter { it.items.isNotEmpty() || it.hasMore }
     }
     LaunchedEffect(visibleRowKeys) {
         searchRowStates.keys.retainAll(visibleRowKeys)
@@ -368,9 +232,6 @@ fun SearchScreen(
             query = trimmedQuery,
             submittedQuery = trimmedSubmittedQuery
         )
-    }
-    LaunchedEffect(isDiscoverMode) {
-        if (isDiscoverMode) viewModel.ensureDiscoverLoaded()
     }
     val hasPendingUnsubmittedQuery = remember(isDiscoverMode, trimmedQuery, trimmedSubmittedQuery) {
         !isDiscoverMode &&
@@ -522,7 +383,7 @@ fun SearchScreen(
     val latestPendingDiscoverRestore by rememberUpdatedState(pendingDiscoverRestoreOnResume)
     val latestInitialFocusRequester by rememberUpdatedState(initialFocusRequester)
     val latestShouldKeepSearchFocus by rememberUpdatedState(
-        focusResults || uiState.isSearching || isVoiceListening
+        focusResults || uiState.isSearching || voice.listening
     )
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -599,6 +460,8 @@ fun SearchScreen(
             }
         }
 
+        BackHandler(enabled = voice.listening) { voice.stop() }
+
         // Skip the initial composition; there is nothing stale to reset yet.
         var lastScrollResetQuery by remember { mutableStateOf(uiState.query) }
         LaunchedEffect(uiState.query) {
@@ -631,16 +494,16 @@ fun SearchScreen(
                     modifier = Modifier.onFocusChanged { inputRowHasFocus = it.hasFocus },
                     query = uiState.query,
                     canMoveToResults = canMoveToResults,
-                    voiceFocusRequester = if (isVoiceSearchAvailable) voiceFocusRequester else null,
+                    voiceFocusRequester = if (voice.available) voiceFocusRequester else null,
                     searchFocusRequester = searchFocusRequester,
                     onSearchFieldFocusChanged = { focused -> isSearchFieldFocused = focused },
                     onQueryChanged = handleQueryChanged,
                     onSubmit = {
                         submitCurrentQuery(uiState.query.trim())
                     },
-                    showVoiceSearch = isVoiceSearchAvailable,
-                    isVoiceListening = isVoiceListening,
-                    voiceRmsLevel = voiceRmsLevel,
+                    showVoiceSearch = voice.available,
+                    isVoiceListening = voice.listening,
+                    voiceRmsLevel = voice.rmsLevel,
                     onVoiceSearch = launchVoiceSearch,
                     onMoveToResults = {
                         // D-pad down from the text field is the user's confirmation that the
@@ -652,7 +515,7 @@ fun SearchScreen(
                         // Arm the restore so coming back lands on this button rather than the
                         // default entry focus.
                         pendingDiscoverRestoreOnResume = true
-                        onOpenDiscover()
+                        onOpenDiscover(uiState.query.trim())
                     },
                     discoverFocusRequester = discoverButtonFocusRequester,
                     showDiscoverButton = uiState.discoverLocation == DiscoverLocation.IN_SEARCH,
@@ -801,7 +664,7 @@ fun SearchScreen(
                             val catalogKey = catalogRow.stableKey()
                             val isPlaceholder = catalogRow.isLoading &&
                                 catalogRow.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
-                            val hasEnoughForSeeAll = !isPlaceholder && catalogRow.items.size >= 15
+                            val showSeeAll = !isPlaceholder && (catalogRow.hasMore || catalogRow.items.size >= 15)
 
                             val listState = searchRowStates.getOrPut(catalogKey) {
                                 val saved = viewModel.savedRowScrollPositions[catalogKey]
@@ -816,7 +679,7 @@ fun SearchScreen(
                             CatalogRowSection(
                                 catalogRow = catalogRow,
                                 posterCardStyle = posterCardStyle,
-                                showSeeAll = hasEnoughForSeeAll,
+                                showSeeAll = showSeeAll,
                                 showPosterLabels = uiState.posterLabelsEnabled,
                                 showAddonName = uiState.catalogAddonNameEnabled,
                                 showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
@@ -886,7 +749,8 @@ fun SearchScreen(
                                     onNavigateToSeeAll(
                                         catalogRow.catalogId,
                                         catalogRow.addonId,
-                                        catalogRow.apiType
+                                        catalogRow.apiType,
+                                        catalogKey
                                     )
                                 }
                             )
@@ -1183,9 +1047,10 @@ private fun SearchInputField(
     clearHistoryFocusRequester: FocusRequester?,
     isScreenActive: Boolean = true
 ) {
-    var isDiscoverButtonFocused by remember { mutableStateOf(false) }
     var isVoiceButtonFocused by remember { mutableStateOf(false) }
+    val inputView = LocalView.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val towardDiscoverKey = if (isRtl) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
 
     Row(
         modifier = modifier
@@ -1195,29 +1060,13 @@ private fun SearchInputField(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showDiscoverButton) {
-            IconButton(
+            Button(
                 onClick = onOpenDiscover,
-                modifier = Modifier
-                    .then(
-                        discoverFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier
-                    )
-                    .onFocusChanged { isDiscoverButtonFocused = it.isFocused }
-                    .size(NuvioTheme.spacing.huge)
-                    .border(
-                        width = if (isDiscoverButtonFocused) NuvioTheme.spacing.xxs else NuvioTheme.spacing.hairline,
-                        color = if (isDiscoverButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
-                    )
-                    .background(
-                        color = NuvioTheme.colors.BackgroundCard,
-                        shape = RoundedCornerShape(NuvioTheme.radii.md)
-                    )
+                modifier = discoverFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier
             ) {
-                Icon(
-                    imageVector = Icons.Default.Explore,
-                    contentDescription = stringResource(R.string.cd_open_discover),
-                    tint = NuvioTheme.colors.TextPrimary
-                )
+                Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(NuvioTheme.spacing.sm))
+                Text(stringResource(R.string.discover_title))
             }
 
             Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
@@ -1294,6 +1143,11 @@ private fun SearchInputField(
                                 Modifier
                             }
                         )
+                        .focusProperties {
+                            if (showDiscoverButton && discoverFocusRequester != null) {
+                                if (isRtl) right = discoverFocusRequester else left = discoverFocusRequester
+                            }
+                        }
                         .onFocusChanged { isVoiceButtonFocused = it.isFocused }
                         .size(NuvioTheme.spacing.huge)
                         .border(
@@ -1331,6 +1185,17 @@ private fun SearchInputField(
                 }
                 .onPreviewKeyEvent { keyEvent ->
                     when (keyEvent.nativeKeyEvent.keyCode) {
+                        towardDiscoverKey -> {
+                            val keyboardHidden = ViewCompat.getRootWindowInsets(inputView)
+                                ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+                            if (showDiscoverButton && keyboardHidden &&
+                                keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
+                            ) {
+                                val target = voiceFocusRequester ?: discoverFocusRequester
+                                return@onPreviewKeyEvent target?.requestFocus() == true
+                            }
+                        }
+
                         KeyEvent.KEYCODE_ENTER,
                         KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                             if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {

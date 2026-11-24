@@ -28,7 +28,8 @@ class CatalogRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val api: AddonApi,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
-    private val serverCatalog: ServerCatalog
+    private val serverCatalog: ServerCatalog,
+    private val searchArtwork: NuvioCatalogArtwork
 ) : CatalogRepository {
     companion object {
         private const val TAG = "CatalogRepository"
@@ -63,12 +64,16 @@ class CatalogRepositoryImpl @Inject constructor(
         }
 
         val url = buildCatalogUrl(addonBaseUrl, type, catalogId, skip, extraArgs)
+        val isPrivateDiscovery = isHouseholdDiscoveryBase(addonBaseUrl)
+        val logUrl = if (isPrivateDiscovery) "[private]" else url
         Log.d(
             TAG,
-            "Fetching catalog addonId=$addonId addonName=$addonName type=$type catalogId=$catalogId skip=$skip skipStep=$skipStep supportsSkip=$supportsSkip url=$url"
+            "Fetching catalog addonId=$addonId addonName=$addonName type=$type catalogId=$catalogId skip=$skip skipStep=$skipStep supportsSkip=$supportsSkip url=$logUrl"
         )
 
-        when (val result = safeApiCall(context) { api.getCatalog(url) }) {
+        // Old releases cached private rows for five minutes at the same stable URL.
+        val cacheControl = if (isPrivateDiscovery) "no-cache" else null
+        when (val result = safeApiCall(context) { api.getCatalog(url, cacheControl) }) {
             is NetworkResult.Success -> {
                 val rawItemCount = result.data.metas.size
                 val posterPattern = layoutPreferenceDataStore.customPosterUrlPattern
@@ -78,6 +83,7 @@ class CatalogRepositoryImpl @Inject constructor(
                 val items = result.data.metas
                     .mapNotNull { it?.toDomainOrNull(type, addonBaseUrl) }
                     .distinctBy { it.id }
+                    .also { if (addonId == NUVIO_CATALOG_ID) searchArtwork.record(addonBaseUrl, it) }
                     .withCustomPosterUrls(
                         com.nuvio.tv.core.poster.patternForScreen(posterPattern, posterScreen, enabledScreens)
                     )
@@ -108,7 +114,7 @@ class CatalogRepositoryImpl @Inject constructor(
             is NetworkResult.Error -> {
                 Log.w(
                     TAG,
-                    "Catalog fetch failed addonId=$addonId type=$type catalogId=$catalogId code=${result.code} message=${result.message} url=$url"
+                    "Catalog fetch failed addonId=$addonId type=$type catalogId=$catalogId code=${result.code} message=${result.message} url=$logUrl"
                 )
                 emit(result)
             }

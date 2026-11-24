@@ -39,6 +39,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -62,12 +63,10 @@ class TrailerSeekOverlayState {
 @Composable
 fun SharedTrailerOverlay(
     title: String,
-    trailerUrl: String?,
-    trailerAudioUrl: String?,
-    isLoading: Boolean,
-    errorMessage: String?,
-    onDismiss: () -> Unit,
-    onRetry: () -> Unit
+    trailer: FullscreenTrailerState,
+    onDismiss: (Long?) -> Unit,
+    onRetry: () -> Unit,
+    onOpenInYouTube: () -> Unit
 ) {
     var isPaused by remember { mutableStateOf(false) }
     var seekOverlayVisible by remember { mutableStateOf(false) }
@@ -76,11 +75,25 @@ fun SharedTrailerOverlay(
     var seekDeltaMs by remember { mutableLongStateOf(0L) }
 
     val overlayFocusRequester = remember { FocusRequester() }
-    val canControlPlayback = !trailerUrl.isNullOrBlank() && !isLoading && errorMessage == null
+    val retryFocusRequester = remember { FocusRequester() }
+    val source = trailer.source
+    var rendered by remember(trailer.attempt) { mutableStateOf(false) }
+    var playbackFailed by remember(trailer.attempt) { mutableStateOf(false) }
+    val failed = trailer.failed || playbackFailed
+    val canControlPlayback = rendered && !failed
+    val isLoading = !rendered && !failed
+    val controlsDescription = stringResource(R.string.cd_trailer_controls)
 
-    LaunchedEffect(trailerUrl, trailerAudioUrl, isLoading, errorMessage) {
+    LaunchedEffect(trailer.attempt) {
         isPaused = false
         seekOverlayVisible = false
+        seekToken = 0
+    }
+    LaunchedEffect(trailer.attempt, source, rendered, failed) {
+        if (source != null && !rendered && !failed) {
+            delay(30_000)
+            playbackFailed = true
+        }
     }
 
     LaunchedEffect(seekOverlayVisible, canControlPlayback, seekToken) {
@@ -90,34 +103,31 @@ fun SharedTrailerOverlay(
         }
     }
 
+    val dismissFromBack = { onDismiss(seekOverlayState.positionMs.takeIf { canControlPlayback }) }
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissFromBack,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
     ) {
-        AmbientDialogEffect(onDismiss)
+        AmbientDialogEffect { onDismiss(null) }
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
                 .focusRequester(overlayFocusRequester)
-                .focusable()
-                // This surface exists only to capture remote keys (back/play/pause/seek) and has no
-                // label of its own, so merge the overlay's own text (title + "press back" hint)
-                // into it. Merging leaves exactly one named node on the overlay; a bare
-                // contentDescription here would leave those texts as separate named siblings.
-                .semantics(mergeDescendants = true) { }
+                .semantics(mergeDescendants = true) {
+                    if (canControlPlayback) contentDescription = controlsDescription
+                }
                 .onPreviewKeyEvent { keyEvent ->
                     if (keyEvent.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
                         return@onPreviewKeyEvent false
                     }
 
                     when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BACK,
                         KeyEvent.KEYCODE_ESCAPE -> {
-                            onDismiss()
+                            dismissFromBack()
                             true
                         }
 
@@ -186,14 +196,20 @@ fun SharedTrailerOverlay(
                         else -> false
                     }
                 }
+                .focusable()
         ) {
-            LaunchedEffect(canControlPlayback, errorMessage) {
-                overlayFocusRequester.requestFocusAfterFrames()
+            LaunchedEffect(failed) {
+                if (failed) retryFocusRequester.requestFocusAfterFrames()
+                else overlayFocusRequester.requestFocusAfterFrames()
             }
-            if (!trailerUrl.isNullOrBlank() && errorMessage == null) {
+            if (source != null && !failed) {
                 TrailerPlayer(
-                    trailerUrl = trailerUrl,
-                    trailerAudioUrl = trailerAudioUrl,
+                    trailerUrl = source.videoUrl,
+                    trailerAudioUrl = source.audioUrl,
+                    fullscreenDisplay = trailer.display,
+                    isHls = source.isHls,
+                    onFirstFrameRendered = { rendered = true },
+                    onError = { playbackFailed = true },
                     isPlaying = true,
                     isPaused = isPaused,
                     seekRequestToken = seekToken,
@@ -202,39 +218,43 @@ fun SharedTrailerOverlay(
                         seekOverlayState.positionMs = position
                         seekOverlayState.durationMs = duration
                     },
-                    onEnded = onDismiss,
+                    onEnded = { onDismiss(null) },
                     modifier = Modifier.fillMaxSize()
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White
-                )
-                Text(
-                    text = stringResource(R.string.hero_press_back_trailer),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.82f)
-                )
-            }
-
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+            if (!rendered || failed || isPaused || seekOverlayVisible) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    LoadingIndicator()
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White
+                    )
+                    Text(
+                        text = stringResource(R.string.hero_press_back_trailer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.82f)
+                    )
                 }
             }
 
-            if (!errorMessage.isNullOrBlank()) {
+            if (isLoading) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+                ) {
+                    LoadingIndicator()
+                    Text(text = stringResource(R.string.detail_trailer_loading), color = Color.White)
+                }
+            }
+
+            if (failed) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -243,12 +263,19 @@ fun SharedTrailerOverlay(
                     verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
                 ) {
                     Text(
-                        text = errorMessage,
+                        text = stringResource(R.string.detail_trailer_error),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White
                     )
-                    Button(onClick = onRetry) {
-                        Text(text = stringResource(R.string.action_retry))
+                    Row(horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)) {
+                        Button(onClick = onRetry, modifier = Modifier.focusRequester(retryFocusRequester)) {
+                            Text(text = stringResource(R.string.action_retry))
+                        }
+                        if (trailer.watchUrl != null) {
+                            Button(onClick = onOpenInYouTube) {
+                                Text(text = stringResource(R.string.detail_trailer_open_youtube))
+                            }
+                        }
                     }
                 }
             }

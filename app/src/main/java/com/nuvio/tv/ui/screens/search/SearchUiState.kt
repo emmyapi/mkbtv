@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.search
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.data.repository.DiscoverSource
+import com.nuvio.tv.data.repository.DiscoverFailure
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.DiscoverLocation
@@ -32,14 +34,20 @@ data class SearchUiState(
     val discoverInitialized: Boolean = false,
     val discoverLoading: Boolean = false,
     val discoverLoadingMore: Boolean = false,
-    val discoverCatalogs: List<DiscoverCatalog> = emptyList(),
-    val selectedDiscoverType: String = "movie",
-    val selectedDiscoverCatalogKey: String? = null,
+    val selectedDiscoverType: String = DISCOVER_TYPE_ANY,
+    val selectedDiscoverCatalogKey: String = DiscoverCatalogOption.ALL.key,
     val selectedDiscoverGenre: String? = null,
+    val discoverKeyword: String = "",
+    val discoverPeriod: DiscoverPeriod = DiscoverPeriod.ANY,
+    val discoverMinRating: Int? = null,
+    val discoverWatch: DiscoverWatch = DiscoverWatch.ANY,
+    val discoverSort: DiscoverSort = DiscoverSort.TRENDING,
+    val discoverFailure: DiscoverFailure? = null,
+    val discoverPosterPattern: String = "",
     val discoverResults: List<MetaPreview> = emptyList(),
-    val pendingDiscoverResults: List<MetaPreview> = emptyList(),
-    val discoverHasMore: Boolean = true,
-    val discoverPage: Int = 1,
+    val discoverTotal: Int? = null,
+    val discoverSources: List<DiscoverSource> = emptyList(),
+    val discoverHasMore: Boolean = false,
     val posterLabelsEnabled: Boolean = true,
     val catalogAddonNameEnabled: Boolean = true,
     val catalogTypeSuffixEnabled: Boolean = true,
@@ -48,18 +56,6 @@ data class SearchUiState(
     val posterCardCornerRadiusDp: Int = 12,
     val recentSearches: List<String> = emptyList(),
     val suggestions: List<String> = emptyList()
-)
-
-@Immutable
-data class DiscoverCatalog(
-    val key: String,
-    val addonId: String,
-    val addonName: String,
-    val addonBaseUrl: String,
-    val catalogId: String,
-    val catalogName: String,
-    val type: String,
-    val genres: List<String>,
-    val supportsSkip: Boolean,
-    val skipStep: Int
-)
+) {
+    val discoverError: Boolean get() = discoverFailure != null
+}

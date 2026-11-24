@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.navigation
 
 import android.os.SystemClock
+import com.nuvio.tv.domain.model.Meta
 import java.net.URLEncoder
 
 sealed class Screen(val route: String) {
@@ -139,7 +140,9 @@ sealed class Screen(val route: String) {
         }
     }
     data object Search : Screen("search")
-    data object Discover : Screen("discover")
+    data object Discover : Screen("discover") {
+        const val VOICE_REQUEST = "discoverVoiceRequest"
+    }
     data object Library : Screen("library")
     data object Settings : Screen("settings")
     data object Tracking : Screen("trakt")
@@ -164,12 +167,13 @@ sealed class Screen(val route: String) {
     data object AuthQrSignIn : Screen("auth_qr_sign_in")
     data object SyncCodeGenerate : Screen("sync_code_generate")
     data object SyncCodeClaim : Screen("sync_code_claim")
-    data object CatalogSeeAll : Screen("catalog_see_all/{catalogId}/{addonId}/{type}?fromSearch={fromSearch}") {
+    data object CatalogSeeAll : Screen("catalog_see_all/{catalogId}/{addonId}/{type}?fromSearch={fromSearch}&rowKey={rowKey}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-        fun createRoute(catalogId: String, addonId: String, type: String, fromSearch: Boolean = false): String {
-            return "catalog_see_all/${encode(catalogId)}/${encode(addonId)}/${encode(type)}?fromSearch=$fromSearch"
+        fun createRoute(catalogId: String, addonId: String, type: String, fromSearch: Boolean = false, rowKey: String? = null): String {
+            return "catalog_see_all/${encode(catalogId)}/${encode(addonId)}/${encode(type)}?fromSearch=$fromSearch" +
+                (rowKey?.let { "&rowKey=${encode(it)}" } ?: "")
         }
     }
 
@@ -192,16 +196,27 @@ sealed class Screen(val route: String) {
 
     data object ProfileSelection : Screen("profile_selection")
 
-    data object CastDetail : Screen("cast_detail/{personId}/{personName}?preferCrew={preferCrew}") {
+    data object CastDetail : Screen("cast_detail/{personId}/{personName}?preferCrew={preferCrew}&sourceContentId={sourceContentId}&sourceId={sourceId}&sourceType={sourceType}&sourceTitle={sourceTitle}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(personId: Int, personName: String, preferCrew: Boolean, source: Meta): String =
+            createRoute(
+                personId, personName, preferCrew, source.imdbId?.takeIf { it.isNotBlank() } ?: source.id,
+                source.id, source.apiType, source.name
+            )
 
         fun createRoute(
             personId: Int,
             personName: String,
-            preferCrew: Boolean = false
+            preferCrew: Boolean = false,
+            sourceContentId: String = "",
+            sourceId: String = "",
+            sourceType: String = "",
+            sourceTitle: String = ""
         ): String {
-            return "cast_detail/$personId/${encode(personName)}?preferCrew=$preferCrew"
+            return "cast_detail/$personId/${encode(personName)}?preferCrew=$preferCrew&sourceContentId=${encode(sourceContentId)}" +
+                "&sourceId=${encode(sourceId)}&sourceType=${encode(sourceType)}&sourceTitle=${encode(sourceTitle)}"
         }
     }
 

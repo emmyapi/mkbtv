@@ -1,0 +1,114 @@
+{
+  "addonName": "TorBox Home metadata",
+  "addonDescription": "Torrentio discovery for the TorBox Home cache-only guard.",
+  "services": [],
+  "formatter": {
+    "id": "prism",
+    "definition": {
+      "name": "",
+      "description": ""
+    }
+  },
+  "presets": [
+    {
+      "type": "torrentio",
+      "instanceId": "torrentio-metadata",
+      "enabled": true,
+      "options": {
+        "name": "Torrentio",
+        "timeout": 20000,
+        "resources": [
+          "stream"
+        ],
+        "providers": [],
+        "useMultipleInstances": false,
+        "url": "https://torrentio.strem.fun"
+      }
+    }
+  ],
+  "requiredStreamTypes": [
+    "p2p"
+  ],
+  "requiredResolutions": [],
+  "excludedQualities": [],
+  "excludedVisualTags": [],
+  "preferredVisualTags": [
+    "HDR+DV",
+    "DV",
+    "HDR10+",
+    "HDR10",
+    "HDR",
+    "HLG"
+  ],
+  "excludedEncodes": [],
+  "sortCriteria": {
+    "global": [
+      {
+        "key": "resolution",
+        "direction": "desc"
+      },
+      {
+        "key": "quality",
+        "direction": "desc"
+      },
+      {
+        "key": "visualTag",
+        "direction": "desc"
+      },
+      {
+        "key": "language",
+        "direction": "desc"
+      },
+      {
+        "key": "size",
+        "direction": "desc"
+      }
+    ]
+  },
+  "deduplicator": {
+    "enabled": true,
+    "keys": [
+      "infoHash"
+    ],
+    "multiGroupBehaviour": "conservative",
+    "p2p": "single_result"
+  },
+  "excludeUncached": false,
+  "hideErrors": true,
+  "statistics": {
+    "enabled": false
+  },
+  "preferredResolutions": [
+    "2160p",
+    "1440p",
+    "1080p",
+    "720p",
+    "576p",
+    "480p",
+    "360p",
+    "240p",
+    "144p",
+    "Unknown"
+  ],
+  "preferredQualities": [
+    "BluRay REMUX",
+    "BluRay",
+    "WEB-DL",
+    "WEBRip",
+    "HDRip",
+    "HC HD-Rip",
+    "DVD REMUX",
+    "DVDRip",
+    "HDTV",
+    "CAM",
+    "TS",
+    "TC",
+    "SCR",
+    "Unknown"
+  ],
+  "requiredEncodes": [],
+  "preferredLanguages": [
+    "English"
+  ],
+  "excludedStreamExpressions": []
+}

@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.trakt.traktBestBackdropUrl
+import com.nuvio.tv.core.trakt.traktPosterUrl
 import com.nuvio.tv.core.trakt.traktBestLandscapeUrl
 import com.nuvio.tv.core.trakt.traktBestLogoUrl
 import com.nuvio.tv.data.remote.api.TraktApi
@@ -292,7 +293,7 @@ private fun toMetaPreviewInternal(
         imdbId = ids?.imdb?.takeIf { it.isNotBlank() },
         slug = ids?.slug?.takeIf { it.isNotBlank() },
         landscapePoster = background,
-        rawPosterUrl = poster
+        rawPosterUrl = imagesValue.traktPosterUrl()
     )
 }
 

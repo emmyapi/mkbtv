@@ -21,7 +21,9 @@ import com.nuvio.tv.data.repository.PlaybackIssueErrorInput
 import com.nuvio.tv.data.repository.PlaybackIssuePlaybackSettingsInput
 import com.nuvio.tv.data.repository.PlaybackIssueReportInput
 import com.nuvio.tv.data.repository.SkipInterval
+import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.ui.screens.stream.householdManualSourceId
 import java.io.IOException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -1893,7 +1895,11 @@ fun PlayerRuntimeController.onEvent(
             filterEpisodeStreamsByAddon(event.addonName)
         }
         is PlayerEvent.OnEpisodeStreamSelected -> {
-            switchToEpisodeStream(event.stream)
+            val videoId = _uiState.value.episodeStreamsForVideoId ?: currentVideoId
+            scope.launch {
+                rememberManualSelection(event.stream, videoId)
+                switchToEpisodeStream(event.stream)
+            }
         }
         PlayerEvent.OnShowSourcesPanel -> {
             showSourcesPanel()
@@ -1914,7 +1920,11 @@ fun PlayerRuntimeController.onEvent(
             filterSourceStreamsByAddon(event.addonName)
         }
         is PlayerEvent.OnSourceStreamSelected -> {
-            switchToSourceStream(event.stream)
+            val videoId = currentVideoId
+            scope.launch {
+                rememberManualSelection(event.stream, videoId)
+                switchToSourceStream(event.stream)
+            }
         }
         PlayerEvent.OnDismissTransientOverlay -> {
             _uiState.update {
@@ -2234,4 +2244,11 @@ private fun formatTorrentSpeed(context: android.content.Context, bytesPerSec: Lo
         bytesPerSec >= 1_024 -> context.getString(R.string.unit_speed_kb_s, String.format("%.0f", bytesPerSec / 1_024.0))
         else -> context.getString(R.string.unit_speed_b_s, bytesPerSec)
     }
+}
+
+private suspend fun PlayerRuntimeController.rememberManualSelection(stream: Stream, videoId: String?) {
+    val type = contentType?.takeIf { it.isNotBlank() } ?: return
+    if (videoId.isNullOrBlank()) return
+    val sourceId = stream.householdManualSourceId()
+    streamLinkCacheDataStore.replaceManualChoice(profileId, "${type.lowercase()}|$videoId", sourceId, fromPlayer = true)
 }

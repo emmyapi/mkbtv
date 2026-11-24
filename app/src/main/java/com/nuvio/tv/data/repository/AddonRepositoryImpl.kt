@@ -202,7 +202,7 @@ class AddonRepositoryImpl(
             val type = object : TypeToken<Map<String, Addon>>() {}.type
             val cached: Map<String, Addon> = gson.fromJson(json, type) ?: return@withContext
             synchronized(manifestCacheLock) {
-                manifestCache.putAll(cached)
+                cached.forEach { (url, addon) -> manifestCache.putIfAbsent(url, addon) }
             }
             bumpManifestCacheRevision()
             Log.d(TAG, "Loaded ${cached.size} cached manifests from disk")
@@ -295,23 +295,28 @@ class AddonRepositoryImpl(
 
     override fun getInstalledAddons(): Flow<List<Addon>> = installedAddonsFlow
 
+    internal fun acceptHouseholdManifest(addon: Addon) {
+        putCachedManifestIfChanged(addon.baseUrl, addon)
+    }
+
     override suspend fun fetchAddon(baseUrl: String): NetworkResult<Addon> {
         val cleanBaseUrl = canonicalizeUrl(baseUrl)
         val queryStart = cleanBaseUrl.indexOf('?')
         val basePath = if (queryStart >= 0) cleanBaseUrl.substring(0, queryStart).trimEnd('/') else cleanBaseUrl
         val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""
         val manifestUrl = "$basePath/manifest.json$baseQuery"
+        val logUrl = if (isHouseholdDiscoveryBase(cleanBaseUrl)) "[private]" else manifestUrl
 
         return when (val result = safeApiCall(context) { api.getManifest(manifestUrl) }) {
             is NetworkResult.Success -> {
                 val addon = result.data.toDomain(cleanBaseUrl)
                 if (putCachedManifestIfChanged(cleanBaseUrl, addon)) {
-                    Log.d(TAG, "Updated addon manifest cache url=$cleanBaseUrl version=${addon.version} configVersion=${addon.configVersion}")
+                    Log.d(TAG, "Updated addon manifest cache url=$logUrl version=${addon.version} configVersion=${addon.configVersion}")
                 }
-                NetworkResult.Success(addon)
+                NetworkResult.Success(getCachedManifest(cleanBaseUrl) ?: addon)
             }
             is NetworkResult.Error -> {
-                Log.w(TAG, "Failed to fetch addon manifest for url=$manifestUrl code=${result.code} message=${result.message}")
+                Log.w(TAG, "Failed to fetch addon manifest for url=$logUrl code=${result.code} message=${result.message}")
                 result
             }
             NetworkResult.Loading -> NetworkResult.Loading
@@ -477,6 +482,11 @@ class AddonRepositoryImpl(
     private fun putCachedManifestIfChanged(url: String, addon: Addon): Boolean {
         val changed = synchronized(manifestCacheLock) {
             val existing = manifestCache[url]
+            // A GET started before the private addon accepted a watch can finish after
+            // its POST. The published revision increases monotonically for this addon.
+            if (existing != null && existing.configVersion != null && isHouseholdDiscoveryBase(url) &&
+                (addon.configVersion ?: -1L) < existing.configVersion
+            ) return false
             if (existing == null || hasManifestChanged(existing, addon)) {
                 manifestCache[url] = addon
                 true

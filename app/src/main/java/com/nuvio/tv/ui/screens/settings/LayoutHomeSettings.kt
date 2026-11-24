@@ -237,10 +237,18 @@ internal fun LayoutSidebarSection(
             onToggle = { onEvent(LayoutSettingsEvent.SetSidebarCollapsed(!uiState.sidebarCollapsedByDefault)) }
         )
     }
-    DiscoverLocationRow(
-        selectedLocation = uiState.discoverLocation,
-        rememberedLocation = uiState.lastNonOffDiscoverLocation,
-        onLocationSelected = { location -> onEvent(LayoutSettingsEvent.SetDiscoverLocation(location)) }
+    SettingsToggleRow(
+        title = stringResource(R.string.layout_show_discover),
+        subtitle = stringResource(R.string.layout_show_discover_sub),
+        checked = uiState.discoverLocation != DiscoverLocation.OFF,
+        onToggle = {
+            val location = if (uiState.discoverLocation == DiscoverLocation.OFF) {
+                uiState.lastNonOffDiscoverLocation
+            } else {
+                DiscoverLocation.OFF
+            }
+            onEvent(LayoutSettingsEvent.SetDiscoverLocation(location))
+        }
     )
 }
 
@@ -354,91 +362,5 @@ private fun CatalogChip(
         selected = isSelected,
         onClick = onClick,
         multiSelect = true
-    )
-}
-
-@Composable
-private fun DiscoverLocationRow(
-    selectedLocation: DiscoverLocation,
-    rememberedLocation: DiscoverLocation,
-    onLocationSelected: (DiscoverLocation) -> Unit
-) {
-    val sectionEnabled = selectedLocation != DiscoverLocation.OFF
-    var dialogOpen by remember { mutableStateOf(false) }
-
-    SettingsToggleRow(
-        title = stringResource(R.string.layout_show_discover),
-        subtitle = stringResource(R.string.layout_show_discover_sub),
-        checked = sectionEnabled,
-        onToggle = {
-            onLocationSelected(
-                when (selectedLocation) {
-                    DiscoverLocation.OFF -> rememberedLocation
-                    DiscoverLocation.IN_SEARCH,
-                    DiscoverLocation.IN_SIDEBAR -> DiscoverLocation.OFF
-                }
-            )
-        }
-    )
-    if (sectionEnabled) {
-        val currentLabel = when (selectedLocation) {
-            DiscoverLocation.IN_SIDEBAR -> stringResource(R.string.layout_discover_location_in_sidebar)
-            DiscoverLocation.IN_SEARCH -> stringResource(R.string.layout_discover_location_in_search)
-            DiscoverLocation.OFF -> ""
-        }
-        SettingsActionRow(
-            title = stringResource(R.string.layout_discover_location_action),
-            subtitle = null,
-            value = currentLabel,
-            onClick = { dialogOpen = true }
-        )
-    }
-
-    if (dialogOpen) {
-        DiscoverLocationDialog(
-            selectedLocation = selectedLocation,
-            onLocationSelected = { location ->
-                onLocationSelected(location)
-                dialogOpen = false
-            },
-            onDismiss = { dialogOpen = false }
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun DiscoverLocationDialog(
-    selectedLocation: DiscoverLocation,
-    onLocationSelected: (DiscoverLocation) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val options = listOf(
-        SettingsPickerOption(
-            DiscoverLocation.IN_SEARCH,
-            stringResource(R.string.layout_discover_location_in_search),
-            stringResource(R.string.layout_discover_location_in_search_desc)
-        ),
-        SettingsPickerOption(
-            DiscoverLocation.IN_SIDEBAR,
-            stringResource(R.string.layout_discover_location_in_sidebar),
-            stringResource(R.string.layout_discover_location_in_sidebar_desc)
-        )
-    )
-
-    val effectiveSelected = if (selectedLocation == DiscoverLocation.OFF) {
-        DiscoverLocation.IN_SEARCH
-    } else {
-        selectedLocation
-    }
-
-    SettingsSingleChoiceDialog(
-        title = stringResource(R.string.layout_discover_location_dialog_title),
-        options = options,
-        selectedValue = effectiveSelected,
-        onOptionSelected = onLocationSelected,
-        onDismiss = onDismiss,
-        width = 460.dp,
-        maxHeight = 320.dp
     )
 }

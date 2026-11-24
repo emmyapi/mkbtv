@@ -39,6 +39,10 @@ import kotlin.math.roundToInt
 fun DiscoverScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
+    initialKeyword: String? = null,
+    onInitialKeywordHandled: () -> Unit = {},
+    voiceRequest: String? = null,
+    onVoiceRequestHandled: () -> Unit = {},
     onNavigateToDetail: (String, String, String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -47,6 +51,7 @@ fun DiscoverScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val discoverFirstItemFocusRequester = remember { FocusRequester() }
     var discoverFocusedItemIndex by rememberSaveable { mutableStateOf(0) }
+    var detailItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreDiscoverFocus by rememberSaveable { mutableStateOf(false) }
     var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
 
@@ -61,9 +66,22 @@ fun DiscoverScreen(
         )
     }
 
-    LaunchedEffect(uiState.discoverLocation) {
+    LaunchedEffect(uiState.discoverLocation, initialKeyword) {
         if (uiState.discoverLocation != DiscoverLocation.OFF) {
-            viewModel.ensureDiscoverLoaded()
+            if (initialKeyword != null) {
+                if (initialKeyword.isNotBlank() && voiceRequest.isNullOrBlank()) {
+                    viewModel.onEvent(SearchEvent.SetDiscoverKeyword(initialKeyword))
+                }
+                onInitialKeywordHandled()
+            }
+            // A complete incoming phrase applies its filters and starts the first query together.
+            if (voiceRequest.isNullOrBlank()) viewModel.ensureDiscoverLoaded()
+        }
+    }
+
+    LaunchedEffect(restoreDiscoverFocus, uiState.discoverResults.isEmpty(), uiState.discoverLoading) {
+        if (restoreDiscoverFocus && uiState.discoverResults.isEmpty() && !uiState.discoverLoading) {
+            restoreDiscoverFocus = false
         }
     }
 
@@ -93,39 +111,38 @@ fun DiscoverScreen(
         } else {
             DiscoverSection(
                 uiState = uiState,
+                voiceRequest = voiceRequest,
+                onVoiceRequestHandled = onVoiceRequestHandled,
                 posterCardStyle = posterCardStyle,
                 watchedMovieIds = watchedMovieIds,
                 watchedSeriesIds = watchedSeriesIds,
                 focusResults = false,
                 showBuiltInHeader = showBuiltInHeader,
                 firstItemFocusRequester = discoverFirstItemFocusRequester,
-                focusedItemIndex = discoverFocusedItemIndex,
+                focusedItemIndex = if (restoreDiscoverFocus) {
+                    uiState.discoverResults.indexOfFirst { it.id == detailItemId }.takeIf { it >= 0 }
+                        ?: discoverFocusedItemIndex.coerceAtMost(uiState.discoverResults.lastIndex)
+                } else discoverFocusedItemIndex,
                 shouldRestoreFocusedItem = restoreDiscoverFocus,
                 blockFilterFocus = restoreDiscoverFocus || pendingDiscoverRestoreOnResume,
                 onRestoreFocusedItemHandled = { restoreDiscoverFocus = false },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    detailItemId = itemId
                     pendingDiscoverRestoreOnResume = true
                     onNavigateToDetail(itemId, itemType, addonBaseUrl)
                 },
                 onDiscoverItemFocused = { index ->
                     discoverFocusedItemIndex = index
-                    uiState.discoverResults.getOrNull(index)?.let { item ->
+                    uiState.discoverResults.getOrNull(index)?.takeIf { it.hasDiscoverDetails }?.let { item ->
                         viewModel.prefetchMetaOnFocus(item.id, item.rawType)
                     }
                 },
-                onSelectType = {
+                onFilterEvent = { event ->
                     discoverFocusedItemIndex = 0
-                    viewModel.onEvent(SearchEvent.SelectDiscoverType(it))
-                },
-                onSelectCatalog = {
-                    discoverFocusedItemIndex = 0
-                    viewModel.onEvent(SearchEvent.SelectDiscoverCatalog(it))
-                },
-                onSelectGenre = {
-                    discoverFocusedItemIndex = 0
-                    viewModel.onEvent(SearchEvent.SelectDiscoverGenre(it))
+                    viewModel.onEvent(event)
                 },
                 onLoadMore = { viewModel.onEvent(SearchEvent.LoadNextDiscoverResults) },
+                resolveArtwork = viewModel::resolveDiscoverArtwork,
                 onItemLongPress = { item, addonBaseUrl ->
                     viewModel.posterOptions.show(item, addonBaseUrl)
                 },
@@ -138,6 +155,7 @@ fun DiscoverScreen(
             state = posterOptionsState,
             controller = viewModel.posterOptions,
             onNavigateToDetail = { id, type, addonBaseUrl ->
+                detailItemId = id
                 pendingDiscoverRestoreOnResume = true
                 val clickedItem = uiState.discoverResults.firstOrNull { it.id == id }
                 HeroBackdropState.update(clickedItem?.backdropUrl)

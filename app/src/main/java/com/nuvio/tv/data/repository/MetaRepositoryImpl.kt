@@ -132,7 +132,8 @@ class MetaRepositoryImpl @Inject constructor(
     private val serverMetaCache = createLruCacheMap<String, CachedMeta>(MAX_META_CACHE_ENTRIES)
 
     // In-flight deduplication: prevents concurrent coroutines from firing duplicate requests
-    private val inFlightMeta = ConcurrentHashMap<String, Deferred<Meta?>>()
+    private class SharedMetaRequest(val result: Deferred<Meta?>, var readers: Int = 0)
+    private val inFlightMeta = mutableMapOf<String, SharedMetaRequest>()
     private val inFlightAddonMeta = ConcurrentHashMap<String, Deferred<MetaLookupResult>>()
     private val inFlightPrimaryMeta = ConcurrentHashMap<String, Deferred<Meta?>>()
 
@@ -201,37 +202,47 @@ class MetaRepositoryImpl @Inject constructor(
         emit(NetworkResult.Loading)
 
         val url = buildMetaUrl(addonBaseUrl, effectiveType, id)
-        val deferred = inFlightMeta.getOrPut(cacheKey) {
-            repositoryScope.async {
-                try {
-                    val response = api.getMeta(url)
-                    if (response.isSuccessful) {
-                        val metaDto = response.body()?.meta ?: return@async null
-                        val meta = metaDto.toDomain(context.getString(R.string.episodes_episode))
-                        val ttlMs = parseMaxAgeMs(response.headers()["Cache-Control"])
-                        val cached = CachedMeta(meta, System.currentTimeMillis() + ttlMs)
-                        metaCache[cacheKey] = cached
-                        addonMetaCache[metaLookupCacheKey(requestedType, id)] = cached
-                        meta
-                    } else {
-                        null
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "getMeta failed for $url: ${e.message}")
-                    null
-                } finally {
-                    inFlightMeta.remove(cacheKey)
+        val request = synchronized(inFlightMeta) {
+            inFlightMeta.getOrPut(cacheKey) {
+                SharedMetaRequest(repositoryScope.async {
+                    fetchMeta(url, cacheKey, requestedType, id)
+                })
+            }.also { it.readers++ }
+        }
+        val meta = try {
+            request.result.await()
+        } finally {
+            synchronized(inFlightMeta) {
+                if (--request.readers == 0) {
+                    if (inFlightMeta[cacheKey] === request) inFlightMeta.remove(cacheKey)
+                    // A fast scroll may remove the last artwork cell during an HTTP call.
+                    // Preserve any detail reader sharing it, and cancel the call when nobody remains.
+                    request.result.cancel()
                 }
             }
         }
-
-        val meta = deferred.await()
         if (meta != null) {
             emit(NetworkResult.Success(meta))
         } else {
             emit(NetworkResult.Error(context.getString(R.string.error_meta_not_found)))
+        }
+    }
+
+    private suspend fun fetchMeta(url: String, cacheKey: String, requestedType: String, id: String): Meta? {
+        try {
+            val response = api.getMeta(url)
+            if (!response.isSuccessful) return null
+            val meta = response.body()?.meta?.toDomain(context.getString(R.string.episodes_episode)) ?: return null
+            val ttlMs = parseMaxAgeMs(response.headers()["Cache-Control"])
+            val cached = CachedMeta(meta, System.currentTimeMillis() + ttlMs)
+            metaCache[cacheKey] = cached
+            addonMetaCache[metaLookupCacheKey(requestedType, id)] = cached
+            return meta
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w(TAG, "getMeta failed for $url: ${e.message}")
+            return null
         }
     }
 
@@ -781,7 +792,7 @@ class MetaRepositoryImpl @Inject constructor(
         addonMetaCache.clear()
         primaryAddonMetaCache.clear()
         serverMetaCache.clear()
-        inFlightMeta.clear()
+        synchronized(inFlightMeta) { inFlightMeta.clear() }
         inFlightAddonMeta.clear()
         inFlightPrimaryMeta.clear()
     }

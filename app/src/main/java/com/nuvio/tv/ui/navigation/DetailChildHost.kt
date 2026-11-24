@@ -152,6 +152,10 @@ internal fun DetailChildHost(
                     arguments = listOf(
                         navArgument("personId") { type = NavType.StringType },
                         navArgument("personName") { type = NavType.StringType },
+                        navArgument("sourceContentId") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("sourceId") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("sourceType") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("sourceTitle") { type = NavType.StringType; defaultValue = "" },
                         navArgument("preferCrew") {
                             type = NavType.BoolType
                             defaultValue = false
@@ -238,8 +242,8 @@ internal fun DetailChildHost(
                         playOnLoad = nestedArgs?.getString("playOnLoad")?.toBooleanStrictOrNull() == true,
                         playOnLoadManually = nestedArgs?.getString("manualSelection")?.toBooleanStrictOrNull() == true,
                         onBackPress = { childNav.popBackStack() },
-                        onNavigateToCastDetail = { personId, personName, preferCrew ->
-                            childNav.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                        onNavigateToCastDetail = { personId, personName, preferCrew, source ->
+                            childNav.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew, source))
                         },
                         onNavigateToTmdbEntityBrowse = { entityKind, entityId, entityName, sourceType ->
                             childNav.navigate(
@@ -288,7 +292,11 @@ private fun NavBackStackEntry.toSavedChildRoute(): String? {
             Screen.CastDetail.createRoute(
                 personId = personId,
                 personName = personName,
-                preferCrew = args.getBoolean("preferCrew")
+                preferCrew = args.getBoolean("preferCrew"),
+                sourceContentId = args.getString("sourceContentId").orEmpty(),
+                sourceId = args.getString("sourceId").orEmpty(),
+                sourceType = args.getString("sourceType").orEmpty(),
+                sourceTitle = args.getString("sourceTitle").orEmpty()
             )
         }
         Screen.TmdbEntityBrowse.route -> {

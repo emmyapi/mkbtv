@@ -13,6 +13,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -136,6 +140,26 @@ class MetaRepositoryPreferredAddonTypeTest {
         // Cached as "series", asked for as "tv". Both spellings get checked.
         coVerify(exactly = 1) { api.getMeta(any()) }
         assertTrue("warm hit took ${elapsedMs}ms, so it waited on the addon list", elapsedMs < 300L)
+    }
+
+    @Test
+    fun `two readers share one lookup until the last reader leaves`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val api = mockk<AddonApi>()
+        coEvery { api.getMeta(any()) } coAnswers {
+            started.complete(Unit)
+            try { awaitCancellation() } finally { cancelled.complete(Unit) }
+        }
+        val repository = newRepository(api, addon(metaTypes = listOf("series")))
+        val first = launch(start = CoroutineStart.UNDISPATCHED) { repository.getMeta(baseUrl, "series", contentId).last() }
+        started.await()
+        val second = launch(start = CoroutineStart.UNDISPATCHED) { repository.getMeta(baseUrl, "series", contentId).last() }
+        first.cancelAndJoin()
+        assertTrue(!cancelled.isCompleted)
+        second.cancelAndJoin()
+        cancelled.await()
+        coVerify(exactly = 1) { api.getMeta(any()) }
     }
 
     private fun addon(

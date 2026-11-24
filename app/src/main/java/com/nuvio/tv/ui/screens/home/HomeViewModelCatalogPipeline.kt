@@ -134,15 +134,32 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
         }
             .distinctUntilChanged()
             .collectLatest { addons ->
+                val previous = addonsCache
                 addonsCache = addons
-                loadAllCatalogsPipeline(addons)
+                val revisions = changedCatalogRevisions(previous, addons)
+                loadAllCatalogsPipeline(addons, revisedAddonUrls = revisions)
             }
     }
 }
 
+/** A content revision can refresh just that addon's rows while other loaded rows stay usable. */
+internal fun changedCatalogRevisions(previous: List<Addon>, current: List<Addon>): Set<String> {
+    if (previous.size != current.size) return emptySet()
+    val changed = mutableSetOf<String>()
+    for ((old, new) in previous.zip(current)) {
+        if (new == old) continue
+        if (new.id != old.id || new.baseUrl != old.baseUrl ||
+            new.configVersion == null || new.configVersion == old.configVersion
+        ) return emptySet()
+        changed += new.baseUrl
+    }
+    return changed
+}
+
 internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
-    forceReload: Boolean = false
+    forceReload: Boolean = false,
+    revisedAddonUrls: Set<String> = emptySet()
 ) {
     val signature = buildHomeCatalogLoadSignature(addons)
     val hasActiveLoads = synchronized(activeCatalogLoadJobs) { activeCatalogLoadJobs.any { it.isActive } }
@@ -296,8 +313,17 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             _uiState.first { it.layoutPreferencesReady }
         }
         val isGridLayout = _uiState.value.homeLayout == HomeLayout.GRID
-        val eagerHomeCatalogs = if (isGridLayout) catalogsToLoad else catalogsToLoad.take(eagerCatalogLoadCount)
-        val lazyHomeCatalogs = if (isGridLayout) emptyList() else catalogsToLoad.drop(eagerCatalogLoadCount)
+        val loadedKeys = if (revisedAddonUrls.isEmpty()) emptySet() else snapshotCatalogKeys()
+        fun alreadyCurrent(entry: Pair<Addon, CatalogDescriptor>): Boolean {
+            val (addon, catalog) = entry
+            return addon.baseUrl !in revisedAddonUrls &&
+                catalogKey(addon.id, catalog.apiType, catalog.id) in loadedKeys
+        }
+        val (eager, lazy) = catalogsToLoad.withIndex().partition { (index, entry) ->
+            isGridLayout || index < eagerCatalogLoadCount || entry.first.baseUrl in revisedAddonUrls
+        }
+        val eagerHomeCatalogs = eager.map { it.value }.filterNot(::alreadyCurrent)
+        val lazyHomeCatalogs = lazy.map { it.value }.filterNot(::alreadyCurrent)
 
         // Build placeholder descriptors for lazy catalogs
         synchronized(catalogStateLock) {
@@ -335,8 +361,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             "Lazy loading: eager=${eagerHomeCatalogs.size} lazy=${lazyHomeCatalogs.size}"
         )
 
-        val eagerCatalogs = eagerHomeCatalogs + heroOnlyCatalogs
+        val eagerCatalogs = eagerHomeCatalogs + heroOnlyCatalogs.filterNot(::alreadyCurrent)
         pendingCatalogLoads = eagerCatalogs.size
+        if (pendingCatalogLoads == 0) catalogsLoadInProgress = false
         eagerCatalogs.forEach { (addon, catalog) ->
             loadCatalogPipeline(addon, catalog, generation)
         }

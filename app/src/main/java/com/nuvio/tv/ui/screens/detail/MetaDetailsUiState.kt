@@ -5,6 +5,8 @@ import com.nuvio.tv.domain.model.DetailImdbRatingsVisibility
 import com.nuvio.tv.domain.model.EpisodeOptionsOverlayStyle
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.data.trailer.TrailerDisplayCapabilities
+import com.nuvio.tv.data.trailer.TrailerPlaybackSource
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TraktCommentReview
@@ -42,14 +44,9 @@ data class MetaDetailsUiState(
     val isBackgroundTrailerPlaying: Boolean = false,
     val pauseBackgroundTrailerOnScroll: Boolean = true,
     val isTrailerLoading: Boolean = false,
-    val showTrailerControls: Boolean = false,
-    val hideLogoDuringTrailer: Boolean = false,
-    val isSharedTrailerOverlayVisible: Boolean = false,
-    val isSharedTrailerLoading: Boolean = false,
-    val sharedTrailerUrl: String? = null,
-    val sharedTrailerAudioUrl: String? = null,
-    val sharedTrailerErrorMessage: String? = null,
-    val selectedSharedTrailer: MetaTrailer? = null,
+    val previewStartPositionMs: Long = 0L,
+    val trailerWatchUrl: String? = null,
+    val fullscreenTrailer: FullscreenTrailerState? = null,
     val trailerButtonEnabled: Boolean = false,
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     val libraryListTabs: List<LibraryListTab> = emptyList(),
@@ -98,6 +95,16 @@ data class MetaDetailsUiState(
     val userMessageIsError: Boolean = false
 )
 
+data class FullscreenTrailerState(
+    val attempt: Long,
+    val display: TrailerDisplayCapabilities,
+    val selectedTrailer: MetaTrailer?,
+    val watchUrl: String?,
+    val source: TrailerPlaybackSource? = null,
+    val failed: Boolean = false,
+    val failedSources: List<TrailerPlaybackSource> = emptyList()
+)
+
 sealed class MetaDetailsEvent {
     data class OnSeasonSelected(val season: Int) : MetaDetailsEvent()
     data class OnEpisodeClick(val video: Video) : MetaDetailsEvent()
@@ -114,12 +121,13 @@ sealed class MetaDetailsEvent {
     data object OnBackPress : MetaDetailsEvent()
     data object OnUserInteraction : MetaDetailsEvent()
     data object OnPlayButtonFocused : MetaDetailsEvent()
-    data object OnTrailerButtonClick : MetaDetailsEvent()
+    data class OnTrailerButtonClick(val display: TrailerDisplayCapabilities) : MetaDetailsEvent()
     data object OnTrailerEnded : MetaDetailsEvent()
     /** User pressed Back while the full-screen trailer was showing. */
     data object OnTrailerBackPress : MetaDetailsEvent()
-    data class OnSharedTrailerSelected(val trailer: MetaTrailer) : MetaDetailsEvent()
-    data object OnDismissSharedTrailer : MetaDetailsEvent()
+    data class OnSharedTrailerSelected(val trailer: MetaTrailer, val display: TrailerDisplayCapabilities) : MetaDetailsEvent()
+    data class OnDismissSharedTrailer(val resumeAtMs: Long? = null) : MetaDetailsEvent()
+    data object OnOpenTrailerInYouTube : MetaDetailsEvent()
     data object OnRetrySharedTrailer : MetaDetailsEvent()
     data object OnToggleMovieWatched : MetaDetailsEvent()
     data class OnToggleEpisodeWatched(val video: Video) : MetaDetailsEvent()

@@ -296,16 +296,33 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
             .distinct()
             .toList()
 
-        val savedSet = savedValid.toSet()
+        val withNewSlots = insertNewBecauseWatchedSlots(savedValid, defaultOrder)
+        val savedSet = withNewSlots.toSet()
         val unsavedCatalogs = defaultOrder.filterNot { it in savedSet }
         val unsavedCollections = collectionKeys.filterNot { it in savedSet }
-        val mergedOrder = savedValid + unsavedCatalogs + unsavedCollections
+        val mergedOrder = withNewSlots + unsavedCatalogs + unsavedCollections
 
         synchronized(catalogStateLock) {
             catalogOrder.clear()
             catalogOrder.addAll(mergedOrder)
         }
     }
+}
+
+/** Keep new slots by the previously positioned row until the user explicitly reorders them. */
+internal fun insertNewBecauseWatchedSlots(saved: List<String>, available: List<String>): List<String> {
+    val result = saved.toMutableList()
+    for (first in saved) {
+        if (!first.startsWith("dk.mkb.nuvio.discovery.p") || !first.endsWith("_because-watched")) continue
+        var anchor = first
+        for (number in 2..3) {
+            val key = "$first-$number"
+            if (key !in available) continue
+            if (key !in result) result.add(result.indexOf(anchor) + 1, key)
+            anchor = key
+        }
+    }
+    return result
 }
 
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {

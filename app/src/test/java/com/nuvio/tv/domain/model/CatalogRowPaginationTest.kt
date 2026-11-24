@@ -33,6 +33,17 @@ class CatalogRowPaginationTest {
         assertTrue(merged.hasMore)
     }
 
+    @Test
+    fun `a page with only unrenderable entries can advance to the next page`() {
+        val first = row(listOf("a"), skipStep = 20, nextSkip = 20)
+        val skipped = first.mergeCatalogPage(row(emptyList(), skipStep = 20, nextSkip = 40))
+        assertTrue(skipped.hasMore)
+        assertEquals(40, skipped.nextCatalogSkip())
+        assertEquals(listOf("a", "b"), skipped.mergeCatalogPage(
+            row(listOf("b"), skipStep = 20, nextSkip = 60)
+        ).items.map { it.id })
+    }
+
     private fun row(
         ids: List<String>,
         skipStep: Int,

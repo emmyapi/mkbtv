@@ -63,3 +63,9 @@ AGENTS.md
 /PR.md
 docs/
 status-page/
+
+# Local Android signing and distribution artifacts
+*.jks
+*.keystore
+*.apk
+*.aab

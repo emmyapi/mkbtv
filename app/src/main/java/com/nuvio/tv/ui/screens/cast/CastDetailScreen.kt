@@ -4,7 +4,8 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -126,8 +127,10 @@ fun CastDetailScreen(
             .fillMaxSize()
             .background(NuvioTheme.colors.Background)
     ) {
-        Crossfade(
+        AnimatedContent(
             targetState = uiState,
+            contentKey = { it::class },
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "CastDetailStateCrossfade"
         ) { state ->
             when (state) {
@@ -279,7 +282,10 @@ private fun CastDetailContent(
                 ) {
                     Column {
                         SectionHeader(
-                            title = stringResource(R.string.cast_detail_filmography),
+                            title = stringResource(
+                                if (person.partialFilmography) R.string.cast_detail_partial_filmography
+                                else R.string.cast_detail_filmography
+                            ),
                             count = allCredits.size
                         )
                         FilmographyRow(
@@ -580,7 +586,7 @@ private fun FilmographyRow(
     onItemLongPress: (MetaPreview) -> Unit = {},
     isItemWatched: (MetaPreview) -> Boolean = { false }
 ) {
-    val hasRequestedInitialFocus = remember(credits) { mutableStateOf(false) }
+    val hasRequestedInitialFocus = remember { mutableStateOf(false) }
     val restoreFocusRequester = remember { FocusRequester() }
     var restorePending by remember { mutableStateOf(false) }
     val lazyListState = rememberLazyListState()
@@ -596,6 +602,7 @@ private fun FilmographyRow(
             return@LaunchedEffect
         }
         restorePending = true
+        lazyListState.scrollToItem(targetIndex)
         restoreFocusRequester.requestFocusAfterFrames()
     }
 
@@ -609,7 +616,7 @@ private fun FilmographyRow(
     ) {
         itemsIndexed(
             items = credits,
-            key = { _, item -> item.id + item.name }
+            key = { _, item -> item.id }
         ) { index, item ->
             val isRestoreTarget = item.id == restoreItemId
             val isFirstItem = index == 0

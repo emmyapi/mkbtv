@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.R
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -17,12 +18,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.core.party.PartyMedia
@@ -66,7 +69,8 @@ import com.nuvio.tv.ui.screens.home.HeroBackdropState
 fun NuvioNavHost(
     navController: NavHostController,
     startDestination: String = Screen.Home.route,
-    hideBuiltInHeaders: Boolean = false
+    hideBuiltInHeaders: Boolean = false,
+    onDiscoverBack: () -> Unit
 ) {
     PlaybackAvailabilityProvider {
         // The NavController keeps its back stack ViewModels in the store of the owner it is
@@ -74,7 +78,7 @@ fun NuvioNavHost(
         val navViewModelStoreOwner = LocalNavViewModelStoreOwner.current
             ?: checkNotNull(LocalViewModelStoreOwner.current)
         CompositionLocalProvider(LocalViewModelStoreOwner provides navViewModelStoreOwner) {
-            PlaybackNavHost(navController, startDestination, hideBuiltInHeaders)
+            PlaybackNavHost(navController, startDestination, hideBuiltInHeaders, onDiscoverBack)
         }
     }
 }
@@ -83,10 +87,12 @@ fun NuvioNavHost(
 private fun PlaybackNavHost(
     navController: NavHostController,
     startDestination: String,
-    hideBuiltInHeaders: Boolean
+    hideBuiltInHeaders: Boolean,
+    onDiscoverBack: () -> Unit
 ) {
     val playbackAvailability = LocalPlaybackAvailability.current
     val context = LocalContext.current
+    val currentDiscoverBack by rememberUpdatedState(onDiscoverBack)
     fun isStreamToPlayer(from: String, to: String): Boolean {
         return from.startsWith("stream/") && to.startsWith("player/")
     }
@@ -377,8 +383,8 @@ private fun PlaybackNavHost(
                         navController.popBackStack()
                     }
                 },
-                onNavigateToCastDetail = { personId, personName, preferCrew ->
-                    childNav.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                onNavigateToCastDetail = { personId, personName, preferCrew, source ->
+                    childNav.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew, source))
                 },
                 onNavigateToTmdbEntityBrowse = { entityKind, entityId, entityName, sourceType ->
                     childNav.navigate(
@@ -1205,17 +1211,32 @@ private fun PlaybackNavHost(
                         )
                     )
                 },
-                onNavigateToSeeAll = { catalogId, addonId, type ->
+                onNavigateToSeeAll = { catalogId, addonId, type, rowKey ->
                     navController.navigate(
-                        Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
+                        Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true, rowKey = rowKey)
                     )
                 },
-                onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+                onOpenDiscover = { keyword ->
+                    navController.navigate(Screen.Discover.route)
+                    if (keyword.isNotBlank()) {
+                        navController.getBackStackEntry(Screen.Discover.route)
+                            .savedStateHandle["discoverInitialKeyword"] = keyword
+                    }
+                }
             )
         }
 
-        composable(Screen.Discover.route) {
+        composable(Screen.Discover.route) { entry ->
+            // Give Discover's menus and results first refusal, then the sidebar, then NavHost.
+            val currentEntry by navController.currentBackStackEntryAsState()
+            BackHandler(enabled = currentEntry == entry, onBack = currentDiscoverBack)
+            val voiceRequest by entry.savedStateHandle.getStateFlow<String?>(Screen.Discover.VOICE_REQUEST, null)
+                .collectAsStateWithLifecycle()
             DiscoverScreen(
+                initialKeyword = entry.savedStateHandle["discoverInitialKeyword"],
+                onInitialKeywordHandled = { entry.savedStateHandle.remove<String>("discoverInitialKeyword") },
+                voiceRequest = voiceRequest,
+                onVoiceRequestHandled = { entry.savedStateHandle.set<String?>(Screen.Discover.VOICE_REQUEST, null) },
                 showBuiltInHeader = !hideBuiltInHeaders,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     val heroBackdrop = HeroBackdropState.consumeAndClear()
@@ -1448,6 +1469,11 @@ private fun PlaybackNavHost(
                 navArgument("catalogId") { type = NavType.StringType },
                 navArgument("addonId") { type = NavType.StringType },
                 navArgument("type") { type = NavType.StringType },
+                navArgument("rowKey") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("fromSearch") {
                     type = NavType.BoolType
                     defaultValue = false
@@ -1489,6 +1515,7 @@ private fun PlaybackNavHost(
                 addonId = addonId,
                 type = type,
                 searchViewModel = searchViewModel,
+                searchRowKey = backStackEntry.arguments?.getString("rowKey"),
                 viewModel = homeViewModel,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
@@ -1502,6 +1529,10 @@ private fun PlaybackNavHost(
             arguments = listOf(
                 navArgument("personId") { type = NavType.StringType },
                 navArgument("personName") { type = NavType.StringType },
+                navArgument("sourceContentId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("sourceId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("sourceType") { type = NavType.StringType; defaultValue = "" },
+                navArgument("sourceTitle") { type = NavType.StringType; defaultValue = "" },
                 navArgument("preferCrew") {
                     type = NavType.BoolType
                     defaultValue = false

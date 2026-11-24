@@ -8,6 +8,7 @@ import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
 import com.nuvio.tv.data.remote.api.TrailerApi
+import com.nuvio.tv.domain.model.MetaTrailer
 import java.time.Clock
 import java.net.URI
 import java.time.Instant
@@ -27,6 +28,7 @@ private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private val YOUTUBE_SOURCE_CACHE_TTL: Duration = Duration.ofHours(3)
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private const val MAX_YOUTUBE_CANDIDATES = 3
+private val OFFICIAL_LABEL = Regex("""\bofficial\b""", RegexOption.IGNORE_CASE)
 
 // Top level so the lambda doesn't capture the TrailerService instance from its constructor call.
 private fun trailerHeightCap(trailerSettingsDataStore: TrailerSettingsDataStore): suspend () -> Int = {
@@ -146,6 +148,107 @@ class TrailerService(
             Log.e(TAG, "Error fetching trailer for $title: ${e.message}", e)
             null
         }
+    }
+
+    /** User-initiated, full-screen playback. The preview height preference and caches are independent. */
+    suspend fun getFullscreenYouTubeTrailer(
+        tmdbId: String?,
+        type: String?,
+        trailerYtIds: List<String>,
+        display: TrailerDisplayCapabilities,
+        trailers: List<MetaTrailer> = emptyList(),
+        failedSources: List<TrailerPlaybackSource> = emptyList()
+    ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
+        val settings = tmdbSettingsDataStore.settings.first()
+        val language = normalizeTmdbTrailerLanguage(settings.language)
+        val catalogIds = rankedFullscreenIds(trailers, trailerYtIds, language)
+        val numericId = tmdbId?.toIntOrNull()?.takeIf { settings.useTrailers && tmdbService.apiKey().isNotBlank() }
+        val mediaType = normalizeTmdbMediaType(type)
+        val labeledIds = trailers.filter {
+            !it.lang.isNullOrBlank() && (it.official != null || OFFICIAL_LABEL.containsMatchIn(it.name.orEmpty()))
+        }.mapNotNull { it.ytId?.let(::extractYouTubeVideoId) }.toSet()
+        val needsCatalog = catalogIds.size < MAX_YOUTUBE_CANDIDATES || !labeledIds.containsAll(catalogIds)
+        val titleKey = "fullscreen-title|$numericId|$mediaType|$catalogIds|$needsCatalog|$language|$display"
+        val excluded = failedSources.filter { it.youtubeVideoId != null }
+            .groupBy({ it.youtubeVideoId }, { it.videoFormat }).mapValues { it.value.toSet() }
+        fun cached(key: String) = getValidCachedYoutubeSource(key)?.takeUnless {
+            it.videoFormat in excluded[it.youtubeVideoId].orEmpty()
+        }
+        cached(titleKey)?.let { return@withContext it }
+        resolveYouTubeSourceOnce("$titleKey|$excluded") {
+            cached(titleKey)?.let { return@resolveYouTubeSourceOnce it }
+            // One localized metadata request can identify the official trailer even when the addon
+            // already lists several anonymous IDs. The English metadata fallback matters only
+            // when there are no catalog candidates at all.
+            val tmdbVideos = if (numericId != null && needsCatalog && !isRateLimited()) {
+                when (mediaType) {
+                    "movie" -> if (catalogIds.isEmpty()) fetchTmdbMovieVideos(numericId, language)
+                        else fetchTmdbMovieVideosOnce(numericId, language)
+                    "tv" -> if (catalogIds.isEmpty()) fetchTmdbTvVideos(numericId, language)
+                        else fetchTmdbTvVideosOnce(numericId, language)
+                    else -> emptyList()
+                }
+            } else emptyList()
+            val ids = rankedFullscreenIds(trailers, trailerYtIds, language, tmdbVideos)
+            var best: TrailerPlaybackSource? = null
+            for (id in ids) {
+                val key = "fullscreen-video|$id|$language|$display"
+                val failedFormats = excluded[id].orEmpty()
+                val source = cached(key) ?: if (isRateLimited()) null else {
+                    resolveYouTubeSourceOnce("$key|$failedFormats") {
+                        cached(key) ?: inAppYouTubeExtractor
+                            .extractFullscreenSource(id, display, language, failedFormats)
+                            ?.copy(youtubeVideoId = id)
+                            ?.also { if (failedFormats.isEmpty()) cacheYoutubeSource(key, it) }
+                    }
+                }
+                if (source != null && (best == null || source.qualityRank > best.qualityRank)) {
+                    best = source
+                    if (display.isOptimal(source)) break
+                }
+            }
+            best?.also {
+                Log.d(TAG, "Fullscreen YouTube selection ${it.width}x${it.height} video=${it.videoCodec} " +
+                    "transfer=${it.transfer} audio=${it.audioCodec}")
+                if (excluded.isEmpty() && !isRateLimited()) cacheYoutubeSource(titleKey, it)
+            }
+        }
+    }
+
+    internal fun rankedFullscreenIds(
+        trailers: List<MetaTrailer>, ids: List<String>, language: String,
+        tmdbVideos: List<TmdbVideoResult> = emptyList()
+    ): List<String> {
+        val typedIds = trailers.mapNotNull { it.ytId?.let(::extractYouTubeVideoId) }.toSet()
+        val catalog = trailers.mapNotNull { trailer ->
+            val id = trailer.ytId?.let(::extractYouTubeVideoId) ?: return@mapNotNull null
+            val kind = trailer.type?.trim()?.lowercase()
+            val name = trailer.name.orEmpty()
+            // Addons also use "Trailer" or "Teaser" as the name and "YouTube" as the type.
+            if (kind !in listOf(null, "", "youtube", "trailer", "teaser")) return@mapNotNull null
+            TmdbVideoResult(
+                key = id, site = "YouTube", type = if (kind == "teaser" ||
+                    trailer.name.orEmpty().contains("teaser", ignoreCase = true)) "Teaser" else "Trailer",
+                iso6391 = trailer.lang?.substringBefore('-')?.substringBefore('_'),
+                official = trailer.official ?: OFFICIAL_LABEL.containsMatchIn(name)
+            )
+        }
+        val ranked = rankTmdbVideoCandidates(tmdbVideos + catalog, language)
+        return (ranked.mapNotNull { it.key?.let(::extractYouTubeVideoId) } +
+            ids.mapNotNull(::extractYouTubeVideoId).filter { it !in typedIds })
+            .distinct().take(MAX_YOUTUBE_CANDIDATES)
+    }
+
+    internal fun invalidateFullscreenSource(source: TrailerPlaybackSource) {
+        youtubeSourceCache.forEach { (key, cached) ->
+            if (key.startsWith("fullscreen-") && cached.playbackSource == source) {
+                youtubeSourceCache.remove(key, cached)
+            }
+        }
+    }
+
+    private fun cacheYoutubeSource(key: String, source: TrailerPlaybackSource) {
+        youtubeSourceCache[key] = CachedTrailerPlaybackSource(source, Instant.now(clock), extractUrlExpireInstant(source))
     }
 
     /**
@@ -416,7 +519,7 @@ class TrailerService(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "TMDB movie videos error ($tmdbId/$language): ${e.message}")
+            Log.w(TAG, "TMDB movie videos error (${e.javaClass.simpleName})")
             emptyList()
         }
     }
@@ -437,7 +540,7 @@ class TrailerService(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "TMDB tv videos error ($tmdbId/$language): ${e.message}")
+            Log.w(TAG, "TMDB tv videos error (${e.javaClass.simpleName})")
             emptyList()
         }
     }
@@ -471,8 +574,8 @@ class TrailerService(
         val now = Instant.now(clock)
 
         // Use URL expire timestamp if available, otherwise fall back to TTL
-        val expired = cached.expiresAt?.let { now.isAfter(it) }
-            ?: (Duration.between(cached.cachedAt, now) > YOUTUBE_SOURCE_CACHE_TTL)
+        val expired = cached.expiresAt?.let { !now.isBefore(it) } == true ||
+            Duration.between(cached.cachedAt, now) >= YOUTUBE_SOURCE_CACHE_TTL
 
         if (!expired) {
             return cached.playbackSource
@@ -491,19 +594,20 @@ class TrailerService(
      * Extracts the YouTube URL expiration timestamp from the `/expire/EPOCH/` path segment.
      */
     private fun extractUrlExpireInstant(source: TrailerPlaybackSource): Instant? {
-        val url = source.videoUrl
-        val expireRegex = Regex("/expire/(\\d+)/")
-        val match = expireRegex.find(url) ?: return null
-        val epoch = match.groupValues[1].toLongOrNull() ?: return null
-        return Instant.ofEpochSecond(epoch)
+        val expiry = Regex("""(?:/expire/|[?&]expire=)(\d+)(?:[/&#]|$)""")
+        return listOfNotNull(source.videoUrl, source.audioUrl).mapNotNull {
+            val epoch = expiry.find(it)?.groupValues?.get(1)?.toLongOrNull() ?: return@mapNotNull null
+            runCatching { Instant.ofEpochSecond(epoch) }.getOrNull()
+        }.minOrNull()
     }
 
-    private fun extractYouTubeVideoId(input: String): String? {
+    internal fun extractYouTubeVideoId(input: String): String? {
         val trimmed = input.trim()
         if (trimmed.matches(YOUTUBE_VIDEO_ID_REGEX)) return trimmed
 
         return runCatching {
             val uri = URI(trimmed)
+            if (uri.scheme?.lowercase() !in setOf("https", "http") || uri.userInfo != null) return@runCatching null
             val host = uri.host?.lowercase()?.removePrefix("www.") ?: return@runCatching null
             when {
                 host == "youtu.be" -> {
@@ -515,7 +619,7 @@ class TrailerService(
                     val path = uri.path.orEmpty()
                     val query = uri.rawQuery.orEmpty()
 
-                    if (path.startsWith("/watch")) {
+                    if (path.trimEnd('/') == "/watch") {
                         query.split("&")
                             .asSequence()
                             .mapNotNull { entry ->

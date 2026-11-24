@@ -36,6 +36,7 @@ fun MetaDto.toDomain(episodeLabel: String = "Episode"): Meta {
         releaseInfo = releaseInfo,
         status = status?.trim()?.takeIf { it.isNotBlank() },
         imdbRating = imdbRating?.toFloatOrNull(),
+        popularity = parsePopularity(popularity),
         genres = genres ?: emptyList(),
         runtime = runtime,
         director = directors,

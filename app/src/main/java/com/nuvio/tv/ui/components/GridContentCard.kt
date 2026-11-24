@@ -51,6 +51,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.core.image.CustomPosterFallbackInterceptor
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -77,6 +78,7 @@ fun GridContentCard(
     downFocusRequester: FocusRequester? = null,
     depthSurface: CardDepthSurface = CardDepthSurface.POSTERS,
     showReleaseInfo: Boolean = false,
+    indexPosterUrl: String? = null,
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
@@ -214,7 +216,7 @@ fun GridContentCard(
                     item.poster
                 }
                 val revalidationKey = com.nuvio.tv.core.image.rememberImageRevalidationKey(effectiveImageUrl)
-                val imageModel = remember(effectiveImageUrl, requestWidthPx, requestHeightPx, revalidationKey) {
+                val imageModel = remember(effectiveImageUrl, item.rawPosterUrl, indexPosterUrl, requestWidthPx, requestHeightPx, revalidationKey) {
                     val builder = ImageRequest.Builder(context)
                         .data(effectiveImageUrl)
                         .crossfade(imageCrossfade)
@@ -225,13 +227,15 @@ fun GridContentCard(
                     }
                     val fallbackUrl = item.rawPosterUrl
                     if (!fallbackUrl.isNullOrBlank() && fallbackUrl != effectiveImageUrl) {
-                        builder.memoryCacheKeyExtras(
-                            mapOf(com.nuvio.tv.core.image.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-                        )
+                        builder.memoryCacheKeyExtra(CustomPosterFallbackInterceptor.FALLBACK_URL_KEY, fallbackUrl)
+                    }
+                    if (indexPosterUrl != null && indexPosterUrl != effectiveImageUrl && indexPosterUrl != fallbackUrl) {
+                        builder.memoryCacheKeyExtra(CustomPosterFallbackInterceptor.INDEX_POSTER_URL_KEY, indexPosterUrl)
                     }
                     builder.build()
                 }
-                if (effectiveImageUrl.isNullOrBlank()) {
+                var failed by remember(imageModel) { mutableStateOf(false) }
+                if (effectiveImageUrl.isNullOrBlank() || failed) {
                     MonochromePosterPlaceholder(contentDescription = item.name)
                 } else {
                     AsyncImage(
@@ -241,7 +245,8 @@ fun GridContentCard(
                         contentScale = ContentScale.Crop,
                         placeholder = bgPainter,
                         error = bgPainter,
-                        fallback = bgPainter
+                        fallback = bgPainter,
+                        onError = { failed = true }
                     )
                 }
 

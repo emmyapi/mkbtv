@@ -1,12 +1,15 @@
 package com.nuvio.tv.data.local
 
+import android.util.Log
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.domain.model.HOUSEHOLD_ADDON
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,10 +42,32 @@ class StreamLinkCacheDataStore @Inject constructor(
 ) {
     companion object {
         private const val FEATURE = "stream_link_cache"
+        private const val MANUAL_CHOICES = "manual_source_choices"
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(profileId, FEATURE)
+
+    // Unlike the optional last-link cache, manual choices contain no playback URL or headers.
+    suspend fun getManualChoice(profileId: Int, contentKey: String): String? =
+        try {
+            factory.get(profileId, MANUAL_CHOICES).data.first()[cachePrefKey(contentKey)]
+        } catch (_: IOException) {
+            Log.w("ManualSource", "choice could not be read")
+            null
+        }
+
+    suspend fun replaceManualChoice(profileId: Int, contentKey: String, sourceId: String?, fromPlayer: Boolean) {
+        val key = cachePrefKey(contentKey)
+        try {
+            factory.get(profileId, MANUAL_CHOICES).edit { prefs ->
+                if (sourceId == null) prefs.remove(key) else prefs[key] = sourceId
+            }
+            if (sourceId != null) Log.i("ManualSource", if (fromPlayer) "saved from player" else "saved from picker")
+        } catch (_: IOException) {
+            Log.w("ManualSource", "choice could not be saved")
+        }
+    }
 
     suspend fun save(
         contentKey: String,
@@ -64,6 +89,7 @@ class StreamLinkCacheDataStore @Inject constructor(
         addonLogo: String? = null,
         streamDescription: String? = null
     ) {
+        if (addonName == HOUSEHOLD_ADDON) return
         val payload = JSONObject().apply {
             put("url", url)
             put("streamName", streamName)

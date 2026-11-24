@@ -138,6 +138,7 @@ android {
         versionCode = 1077
         versionName = "1.1.0"
 
+        buildConfigField("String", "MKBTV_DISCOVERY_ORIGIN", buildConfigString(localProperties.getProperty("MKBTV_DISCOVERY_ORIGIN", "").trim()))
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
         buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
@@ -366,6 +367,9 @@ androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
         variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        if (!isPlaystore) {
+            variant.outputs.forEach { it.versionCode.set(1078) }
+        }
     }
     // Only the full flavor ships the in-app updater.
     onVariants(selector().withFlavor("distribution" to "full")) { variant ->

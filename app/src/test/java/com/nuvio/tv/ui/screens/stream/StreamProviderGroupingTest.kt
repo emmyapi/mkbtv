@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.stream
 
+import com.nuvio.tv.domain.model.HOUSEHOLD_ADDON
 import com.nuvio.tv.domain.model.Stream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -11,6 +12,16 @@ class StreamProviderGroupingTest {
         infoHash = null, fileIdx = null, externalUrl = null, behaviorHints = null,
         addonName = addon, addonLogo = null, pluginSourceName = provider
     )
+
+    @Test fun `household picker shows source names without changing addon identity or ranked order`() {
+        val rows = listOf("Comet", "MediaFusion", "Torrentio", "Comet").map {
+            stream(null, "$it · 4K", HOUSEHOLD_ADDON)
+        }
+        assertEquals(listOf("Comet", "MediaFusion", "Torrentio", "Comet"), rows.map { it.pickerSource() })
+        assertEquals(rows, groupStreamsByProvider(rows))
+        assertEquals("Repository", stream(null, "Comet · 4K").pickerSource())
+        assertEquals(HOUSEHOLD_ADDON, stream(null, "Unlabelled", HOUSEHOLD_ADDON).pickerSource())
+    }
 
     @Test fun `providers are alphabetical within each repository and streams retain their order`() {
         val z1 = stream("Zulu", "z1")

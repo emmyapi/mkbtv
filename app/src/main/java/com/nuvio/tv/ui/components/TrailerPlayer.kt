@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,9 +37,12 @@ import com.nuvio.tv.core.player.LetterboxSampler
 import com.nuvio.tv.core.player.LetterboxTracker
 import com.nuvio.tv.core.player.LocalTrailerPlayerPool
 import com.nuvio.tv.core.player.TrailerPlayerPool
+import com.nuvio.tv.data.trailer.TrailerDisplayCapabilities
 import com.nuvio.tv.data.trailer.YoutubeChunkedDataSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import android.content.Context
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.TextureView
 import com.nuvio.tv.R
@@ -65,12 +69,16 @@ fun TrailerPlayer(
     modifier: Modifier = Modifier,
     enter: EnterTransition = fadeIn(animationSpec = tween(800)),
     exit: ExitTransition = fadeOut(animationSpec = tween(500)),
-    trailerPlayerPool: TrailerPlayerPool? = null
+    trailerPlayerPool: TrailerPlayerPool? = null,
+    fullscreenDisplay: TrailerDisplayCapabilities? = null,
+    isHls: Boolean = false,
+    startPositionMs: Long = 0L
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activityLifecycleOwner = remember(context) { context as? androidx.lifecycle.LifecycleOwner ?: lifecycleOwner }
     val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val currentIsPaused by rememberUpdatedState(isPaused)
     val currentTrailerUrl by rememberUpdatedState(trailerUrl)
     val currentTrailerAudioUrl by rememberUpdatedState(trailerAudioUrl)
     val currentOnEnded by rememberUpdatedState(onEnded)
@@ -99,11 +107,19 @@ fun TrailerPlayer(
     // Use the shared pool instance instead of creating a new ExoPlayer per focus.
     // The pool keeps one ExoPlayer alive across poster focus changes, eliminating
     // the expensive create/teardown cycle that was the app-launch bottleneck.
-    val trailerPlayer = remember(trailerUrl, resolvedPool) {
-        if (trailerUrl != null) {
-            resolvedPool?.acquire()
-        } else {
-            null
+    val trailerPlayer = remember(trailerUrl, resolvedPool, fullscreenDisplay) {
+        when {
+            trailerUrl == null -> null
+            fullscreenDisplay != null -> resolvedPool?.acquireFullscreen(fullscreenDisplay)
+            else -> resolvedPool?.acquire()
+        }
+    }
+    DisposableEffect(trailerPlayer, resolvedPool) {
+        onDispose {
+            if (trailerPlayer != null) {
+                if (fullscreenDisplay != null) resolvedPool?.releaseFullscreen(trailerPlayer)
+                else resolvedPool?.stop()
+            }
         }
     }
 
@@ -118,21 +134,16 @@ fun TrailerPlayer(
         }
     }
 
-    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted, trailerPlayer) {
+    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, isHls, startPositionMs, trailerPlayer) {
         val player = trailerPlayer ?: return@LaunchedEffect
         player.volume = if (muted) 0f else 1f
         if (isPlaying && trailerUrl != null) {
             hasRenderedFirstFrame = false
-            if (!trailerAudioUrl.isNullOrBlank()) {
-                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
-                val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerUrl))
-                val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(trailerAudioUrl))
-                player.setMediaSource(MergingMediaSource(videoSource, audioSource))
-            } else {
-                player.setMediaItem(MediaItem.fromUri(trailerUrl))
-            }
+            if (!activityLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
+            player.setTrailerSource(context, trailerUrl, trailerAudioUrl, isHls, fullscreenDisplay != null)
+            if (startPositionMs > 0L) player.seekTo(startPositionMs)
             player.prepare()
-            player.playWhenReady = true
+            player.playWhenReady = !currentIsPaused
         } else {
             hasRenderedFirstFrame = false
             player.playWhenReady = false
@@ -177,7 +188,7 @@ fun TrailerPlayer(
 
     LaunchedEffect(isPaused, trailerPlayer) {
         val player = trailerPlayer ?: return@LaunchedEffect
-        if (!isPlaying) return@LaunchedEffect
+        if (!isPlaying || !activityLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
         player.playWhenReady = !isPaused
     }
 
@@ -215,6 +226,13 @@ fun TrailerPlayer(
 
             override fun onRenderedFirstFrame() {
                 hasRenderedFirstFrame = true
+                if (fullscreenDisplay != null) {
+                    val video = player.videoFormat
+                    val audio = player.audioFormat
+                    Log.i("FullscreenTrailer", "First frame ${video?.width}x${video?.height}" +
+                        " video=${video?.sampleMimeType} codecs=${video?.codecs} transfer=${video?.colorInfo?.colorTransfer}" +
+                        " audio=${audio?.sampleMimeType} audioCodecs=${audio?.codecs}")
+                }
                 currentOnFirstFrameRendered()
             }
 
@@ -222,36 +240,32 @@ fun TrailerPlayer(
             // caller stays in its trailer layout over a transparent player.
             override fun onPlayerError(error: PlaybackException) {
                 if (currentIsPlaying) {
+                    if (fullscreenDisplay != null) Log.w("FullscreenTrailer", "Playback error ${error.errorCodeName}")
                     currentOnError()
                 }
             }
         }
+        var resumePending = !activityLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
-                    if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
+                    if (resumePending && currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
+                        resumePending = false
                         if (player.currentMediaItem == null) {
-                            if (!currentTrailerAudioUrl.isNullOrBlank()) {
-                                val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
-                                val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerUrl!!))
-                                val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(currentTrailerAudioUrl!!))
-                                player.setMediaSource(MergingMediaSource(videoSource, audioSource))
-                            } else {
-                                player.setMediaItem(MediaItem.fromUri(currentTrailerUrl!!))
-                            }
+                            player.setTrailerSource(context, currentTrailerUrl!!, currentTrailerAudioUrl, isHls, fullscreenDisplay != null)
                             player.prepare()
                         }
-                        player.playWhenReady = true
+                        player.playWhenReady = !currentIsPaused
                     }
                 }
                 Lifecycle.Event.ON_PAUSE,
                 Lifecycle.Event.ON_STOP -> {
+                    resumePending = true
                     player.playWhenReady = false
                     player.pause()
                     player.stop()
                     player.clearMediaItems()
                 }
-                // Do NOT release on destroy — the pool owns the lifecycle.
                 else -> Unit
             }
         }
@@ -260,20 +274,18 @@ fun TrailerPlayer(
         onDispose {
             runCatching { activityLifecycleOwner.lifecycle.removeObserver(observer) }
             runCatching { player.removeListener(listener) }
-            // Only stop — never release. The pool manages the ExoPlayer lifecycle.
-            resolvedPool?.stop()
         }
     }
 
     if (trailerPlayer != null) {
-        AnimatedVisibility(
-            visible = isPlaying,
-            enter = enter,
-            exit = exit
-        ) {
+        val videoContent: @Composable () -> Unit = {
             AndroidView(
                 factory = { ctx ->
-                    (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
+                    val layout = if (fullscreenDisplay != null) {
+                        R.layout.fullscreen_trailer_player_view
+                    } else R.layout.trailer_player_view
+                    (LayoutInflater.from(ctx).inflate(layout, null) as PlayerView).apply {
+                        if (fullscreenDisplay != null) setEnableComposeSurfaceSyncWorkaround(true)
                         playerViewRef.value = this
                         player = trailerPlayer
                         isFocusable = false
@@ -305,7 +317,7 @@ fun TrailerPlayer(
                     view.player = null
                     view.keepScreenOn = false
                 },
-                modifier = modifier
+                modifier = if (fullscreenDisplay != null) modifier else modifier
                     .clipToBounds()
                     .graphicsLayer {
                         alpha = playerAlphaState.value
@@ -314,5 +326,34 @@ fun TrailerPlayer(
                     }
             )
         }
+        if (fullscreenDisplay != null) {
+            if (isPlaying) videoContent()
+        } else {
+            AnimatedVisibility(visible = isPlaying, enter = enter, exit = exit) { videoContent() }
+        }
     }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun ExoPlayer.setTrailerSource(
+    context: Context,
+    videoUrl: String,
+    audioUrl: String?,
+    isHls: Boolean,
+    fullscreen: Boolean
+) {
+    if (audioUrl.isNullOrBlank() && !fullscreen && !isHls) {
+        setMediaItem(MediaItem.fromUri(videoUrl))
+        return
+    }
+    val factory = if (isHls) {
+        DefaultMediaSourceFactory(context)
+    } else {
+        DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
+    }
+    fun source(url: String) = factory.createMediaSource(
+        MediaItem.Builder().setUri(url).apply { if (isHls) setMimeType(MimeTypes.APPLICATION_M3U8) }.build()
+    )
+    val video = source(videoUrl)
+    setMediaSource(if (audioUrl.isNullOrBlank()) video else MergingMediaSource(video, source(audioUrl)))
 }

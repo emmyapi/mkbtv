@@ -566,7 +566,8 @@ class TmdbMetadataService(
                     type = video.type?.takeIf(String::isNotBlank),
                     name = video.name?.takeIf(String::isNotBlank),
                     ytId = ytId,
-                    lang = video.iso6391?.takeIf(String::isNotBlank)
+                    lang = video.iso6391?.takeIf(String::isNotBlank),
+                    official = video.official
                 )
             }
             .distinctBy { it.ytId }

@@ -1441,7 +1441,9 @@ private suspend fun PlayerRuntimeController.selectEpisodeAutoPlayStream(
         source = settings.streamAutoPlaySource,
         installedAddonNames = installedAddonNames,
         selectedAddons = settings.streamAutoPlaySelectedAddons,
-        selectedPlugins = settings.streamAutoPlaySelectedPlugins
+        selectedPlugins = settings.streamAutoPlaySelectedPlugins,
+        preferredBingeGroup = currentStreamBingeGroup,
+        preferBingeGroupInSelection = settings.streamAutoPlayPreferBingeGroupForNextEpisode
     )
 }
 

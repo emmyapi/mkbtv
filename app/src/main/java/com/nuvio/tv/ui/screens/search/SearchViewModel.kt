@@ -1,12 +1,22 @@
 package com.nuvio.tv.ui.screens.search
 
-import com.nuvio.tv.domain.model.catalogRowLegacyKey
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.repository.DiscoverFailure
+import com.nuvio.tv.data.repository.DiscoverServiceException
+import com.nuvio.tv.data.repository.NuvioCatalogArtwork
+import com.nuvio.tv.data.repository.DiscoverSearchApi
+import com.nuvio.tv.data.repository.DiscoverSearchRequest
+import com.nuvio.tv.data.repository.DiscoverSnapshotExpiredException
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.tmdb.CastKeywordLookup
+import com.nuvio.tv.core.poster.CustomPosterScreen
+import com.nuvio.tv.core.poster.patternForScreen
+import com.nuvio.tv.core.poster.withCustomPosterUrls
+import java.io.IOException
 import com.nuvio.tv.core.network.NetworkResult
-import com.nuvio.tv.data.local.DiscoverSelectionDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.SearchHistoryDataStore
 import com.nuvio.tv.data.mediaserver.ServerCatalog
@@ -17,11 +27,9 @@ import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.catalogRowStableKey
 import com.nuvio.tv.domain.model.mergeCatalogPage
 import com.nuvio.tv.domain.model.nextCatalogSkip
-import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.stableKey
 import com.nuvio.tv.domain.model.supportsExtra
 import com.nuvio.tv.core.util.filterReleasedItems
-import com.nuvio.tv.core.util.isUnreleased
 import com.nuvio.tv.domain.repository.AddonRepository
 import java.time.LocalDate
 import com.nuvio.tv.domain.model.ContentType
@@ -34,6 +42,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +50,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
@@ -52,13 +62,16 @@ class SearchViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
     private val metaRepository: com.nuvio.tv.domain.repository.MetaRepository,
-    private val discoverSelectionDataStore: DiscoverSelectionDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val searchHistoryDataStore: SearchHistoryDataStore,
     private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val serverCatalog: ServerCatalog,
+    private val discoverSearch: DiscoverSearchApi,
+    private val searchArtwork: NuvioCatalogArtwork,
+    private val profileManager: ProfileManager,
+    private val castKeywordLookup: CastKeywordLookup,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -89,6 +102,7 @@ class SearchViewModel @Inject constructor(
     private var searchRunJob: Job? = null
     private var activeSearchQuery: String? = null
     private var searchGeneration = 0L
+    private var rememberActiveSearch = false
     private var discoverJob: Job? = null
     private var catalogRowsUpdateJob: Job? = null
     private var suggestionJob: Job? = null
@@ -97,12 +111,14 @@ class SearchViewModel @Inject constructor(
     private var lastCompletedRequestKey: String? = null
     private var hasRenderedFirstCatalog = false
     private var pendingCatalogResponses = 0
-    private var revealBatchAfterNextDiscoverFetch = false
+    private var discoverCriteriaJob: Job? = null
+    private var discoverGeneration = 0L
+    private var discoverProfileId = profileManager.activeProfileId.value
+    private var discoverRequest: DiscoverSearchRequest? = null
+    private var discoverCursor: String? = null
     private var hideUnreleasedContent = false
 
     private companion object {
-        const val DISCOVER_INITIAL_LIMIT = 100
-        const val DISCOVER_SHOW_MORE_BATCH = 50
         const val SUGGESTION_DEBOUNCE_MS = 150L
 
         /**
@@ -127,24 +143,17 @@ class SearchViewModel @Inject constructor(
             layoutPreferenceDataStore.discoverLocation.distinctUntilChanged().collectLatest { location ->
                 _uiState.update { it.copy(discoverLocation = location) }
                 if (location == DiscoverLocation.OFF) {
-                    discoverJob?.cancel()
-                    discoverJob = null
-                    revealBatchAfterNextDiscoverFetch = false
-                    _uiState.update {
-                        it.copy(
-                            discoverInitialized = false,
-                            discoverLoading = false,
-                            discoverLoadingMore = false,
-                            discoverCatalogs = emptyList(),
-                            selectedDiscoverType = "movie",
-                            selectedDiscoverCatalogKey = null,
-                            selectedDiscoverGenre = null,
-                            discoverResults = emptyList(),
-                            pendingDiscoverResults = emptyList(),
-                            discoverHasMore = true,
-                            discoverPage = 1
-                        )
-                    }
+                    clearDiscover()
+                }
+            }
+        }
+        viewModelScope.launch {
+            profileManager.activeProfileId.collect { profileId ->
+                if (profileId != discoverProfileId) {
+                    val wasOpen = _uiState.value.discoverInitialized
+                    discoverProfileId = profileId
+                    clearDiscover()
+                    if (wasOpen) ensureDiscoverLoaded()
                 }
             }
         }
@@ -168,6 +177,13 @@ class SearchViewModel @Inject constructor(
                         posterCardCornerRadiusDp = prefs.cornerRadiusDp
                     )
                 }
+            }
+        }
+        viewModelScope.launch {
+            combine(layoutPreferenceDataStore.customPosterUrlPattern, layoutPreferenceDataStore.customPosterEnabledScreens) { pattern, screens ->
+                patternForScreen(pattern, CustomPosterScreen.SEARCH, screens)
+            }.distinctUntilChanged().collect { pattern ->
+                _uiState.update { it.copy(discoverPosterPattern = pattern) }
             }
         }
         viewModelScope.launch {
@@ -199,8 +215,9 @@ class SearchViewModel @Inject constructor(
     fun ensureDiscoverLoaded() {
         val state = _uiState.value
         if (state.discoverLocation == DiscoverLocation.OFF) return
-        if (state.discoverInitialized || state.discoverLoading) return
-        viewModelScope.launch { loadDiscoverCatalogs() }
+        if (state.discoverInitialized) return
+        _uiState.update { it.copy(discoverInitialized = true) }
+        restartDiscoverQuery()
     }
 
     private val metaPrefetchedIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
@@ -238,15 +255,28 @@ class SearchViewModel @Inject constructor(
             SearchEvent.RememberSearchFromTextInput -> rememberSearchFromTextInput()
             SearchEvent.ClearRecentSearches -> clearRecentSearches()
             is SearchEvent.RemoveRecentSearch -> removeRecentSearch(event.query)
-            is SearchEvent.LoadMoreCatalog -> loadMoreCatalogItems(
-                catalogId = event.catalogId,
-                addonId = event.addonId,
-                type = event.type
-            )
+            is SearchEvent.LoadMoreCatalog -> loadMoreCatalogItems(event.rowKey)
             is SearchEvent.SelectDiscoverType -> selectDiscoverType(event.type)
             is SearchEvent.SelectDiscoverCatalog -> selectDiscoverCatalog(event.catalogKey)
             is SearchEvent.SelectDiscoverGenre -> selectDiscoverGenre(event.genre)
-            SearchEvent.LoadNextDiscoverResults -> loadNextDiscoverResults()
+            is SearchEvent.SetDiscoverKeyword -> setDiscoverKeyword(event.keyword)
+            is SearchEvent.ApplyDiscoverVoiceQuery -> {
+                applyDiscoverFilter { DiscoverVoiceQuery.apply(event.phrase, it) }
+                ensureDiscoverLoaded()
+            }
+            is SearchEvent.SelectDiscoverPeriod -> applyDiscoverFilter { it.copy(discoverPeriod = event.period) }
+            is SearchEvent.SelectDiscoverMinRating -> applyDiscoverFilter { it.copy(discoverMinRating = event.rating) }
+            is SearchEvent.SelectDiscoverSort -> applyDiscoverFilter { it.copy(discoverSort = event.sort) }
+            is SearchEvent.SelectDiscoverWatch -> applyDiscoverFilter { it.copy(discoverWatch = event.watch) }
+            SearchEvent.ResetDiscoverFilters -> resetDiscoverFilters()
+            SearchEvent.RetryDiscover -> {
+                if (_uiState.value.discoverError) {
+                    if (discoverRequest == null) restartDiscoverQuery() else fetchDiscoverPage()
+                }
+            }
+            SearchEvent.LoadNextDiscoverResults -> {
+                if (discoverCursor != null && !_uiState.value.discoverError) fetchDiscoverPage()
+            }
             SearchEvent.Retry -> {
                 // An explicit retry must refetch even though nothing about the request changed.
                 lastRequestKey = null
@@ -559,8 +589,12 @@ class SearchViewModel @Inject constructor(
 
         // Submit can immediately follow the debounced live-search launch. Reuse an active run for
         // the same query, but cancel a different query's entire scope before starting this one.
-        if (activeSearchQuery == query && searchRunJob?.isActive == true) return
+        if (activeSearchQuery == query && searchRunJob?.isActive == true) {
+            if (rememberToHistory) rememberActiveSearch = true
+            return
+        }
         cancelSearchRun()
+        rememberActiveSearch = rememberToHistory
         val generation = searchGeneration
         activeSearchQuery = query
 
@@ -592,7 +626,7 @@ class SearchViewModel @Inject constructor(
                 // An explicit submit that lands on a query the live search already finished still
                 // counts as a search the user confirmed, so remember it instead of skipping out
                 // of the history save below.
-                if (rememberToHistory && catalogsMap.values.any { row -> row.items.isNotEmpty() }) {
+                if (rememberActiveSearch && catalogsMap.values.any { row -> row.items.isNotEmpty() }) {
                     viewModelScope.launch {
                         searchHistoryDataStore.saveRecentSearch(query, MAX_RECENT_SEARCHES)
                     }
@@ -610,17 +644,6 @@ class SearchViewModel @Inject constructor(
             // Rows are left alone here. Clearing them produced an empty frame between the old
             // results and the placeholders below, which is the flash this screen used to show.
             _uiState.update { it.copy(isSearching = true, error = null, installedAddons = addons) }
-
-            if (searchTargets.isEmpty()) {
-                _uiState.update {
-                    it.copy(
-                        isSearching = false,
-                        error = context.getString(R.string.search_error_no_catalogs),
-                        catalogRows = emptyList()
-                    )
-                }
-                return@launch
-            }
 
             // Preserve addon manifest order.
             searchTargets.forEach { (addon, catalog) ->
@@ -687,17 +710,28 @@ class SearchViewModel @Inject constructor(
                 if (showingRealRows) state else state.copy(catalogRows = placeholderRows)
             }
 
-            val jobs = searchTargets.map { (addon, catalog) ->
+            pendingCatalogResponses = searchTargets.size + 1
+            val titleJobs = searchTargets.map { (addon, catalog) ->
                 launch {
                     loadCatalog(addon, catalog, query, generation)
                 }
             }
-            pendingCatalogResponses = jobs.size
-            activeSearchJobs = jobs
+            val castJob = launch {
+                // A pause while typing updates titles immediately. Give the name lookup a longer
+                // debounce so navigating the TV keyboard does not search credits for each prefix.
+                if (keepSuggestions) delay(750)
+                loadCastRows(query, generation, searchTargets.isEmpty())
+            }
+            activeSearchJobs = titleJobs + castJob
 
-            // Wait for all jobs to complete so we can stop showing the global loading state.
             try {
-                jobs.joinAll()
+                titleJobs.joinAll()
+                // Moving focus into completed title results must not wait for the public cast provider.
+                if (isCurrentSearch(generation, query) && catalogsMap.values.any { it.items.isNotEmpty() }) {
+                    updateCatalogRowsNow()
+                    _uiState.update { it.copy(isSearching = false) }
+                }
+                castJob.join()
             } finally {
                 if (
                     generation == searchGeneration &&
@@ -710,7 +744,7 @@ class SearchViewModel @Inject constructor(
                     // rememberSearchFromTextInput)
                     // writes history. Live search fires per keystroke and would otherwise record
                     // every prefix ("do", "dog") even when the user never confirmed the search.
-                    if (rememberToHistory && catalogsMap.values.any { row -> row.items.isNotEmpty() }) {
+                    if (rememberActiveSearch && catalogsMap.values.any { row -> row.items.isNotEmpty() }) {
                         viewModelScope.launch {
                             searchHistoryDataStore.saveRecentSearch(query, MAX_RECENT_SEARCHES)
                         }
@@ -721,14 +755,48 @@ class SearchViewModel @Inject constructor(
         searchRunJob = job
     }
 
+    private suspend fun loadCastRows(query: String, generation: Long, noCatalogs: Boolean) {
+        try {
+            val result = castKeywordLookup.search(query)
+            if (!isCurrentSearch(generation, query)) return
+            if (result.items.isEmpty()) {
+                if (noCatalogs) _uiState.update { it.copy(error = context.getString(R.string.search_error_no_catalogs)) }
+                return
+            }
+            val pattern = patternForScreen(layoutPreferenceDataStore.customPosterUrlPattern.first(),
+                CustomPosterScreen.SEARCH, layoutPreferenceDataStore.customPosterEnabledScreens.first())
+            if (!isCurrentSearch(generation, query)) return
+            val title = context.getString(if (result.truncated) R.string.cast_detail_partial_filmography else R.string.cast_detail_filmography)
+            for ((type, items) in result.items.withCustomPosterUrls(pattern).groupBy { it.type }) {
+                val row = CatalogRow(
+                    addonId = "wikidata", addonName = "Wikidata", addonBaseUrl = "", catalogId = "cast",
+                    catalogName = "$title · $query", type = type, items = items, hasMore = false
+                )
+                val key = row.stableKey()
+                catalogOrder.add(key)
+                catalogsMap[key] = row
+            }
+        } catch (_: IOException) {
+            if (isCurrentSearch(generation, query) && catalogsMap.values.none { it.items.isNotEmpty() }) {
+                _uiState.update { it.copy(error = context.getString(R.string.search_error_failed)) }
+            }
+        } finally {
+            if (isCurrentSearch(generation, query)) {
+                pendingCatalogResponses = (pendingCatalogResponses - 1).coerceAtLeast(0)
+                scheduleCatalogRowsUpdate()
+            }
+        }
+    }
+
     private suspend fun loadCatalog(
         addon: Addon,
         catalog: CatalogDescriptor,
         query: String,
         generation: Long
     ) {
+        val key = catalogKey(addon.id, addon.baseUrl, catalog.apiType, catalog.id)
         val supportsSkip = catalog.supportsExtra("skip")
-        val skipStep = catalog.skipStep()
+        val skipStep = catalog.searchSkipStep(addon.id)
         catalogRepository.getCatalog(
             addonBaseUrl = addon.baseUrl,
             addonId = addon.id,
@@ -745,21 +813,16 @@ class SearchViewModel @Inject constructor(
             when (result) {
                 is NetworkResult.Success -> {
                     if (!isCurrentSearch(generation, query)) return@collect
-                    val key = catalogKey(
-                        addonId = addon.id,
-                        addonBaseUrl = addon.baseUrl,
-                        type = catalog.apiType,
-                        catalogId = catalog.id
-                    )
-                    catalogsMap[key] = result.data
+                    catalogsMap[key] = result.data.withSearchPageOffset(0)
                     pendingCatalogResponses = (pendingCatalogResponses - 1).coerceAtLeast(0)
                     scheduleCatalogRowsUpdate()
                 }
                 is NetworkResult.Error -> {
                     if (!isCurrentSearch(generation, query)) return@collect
                     pendingCatalogResponses = (pendingCatalogResponses - 1).coerceAtLeast(0)
-                    // Ignore per-catalog errors unless we have nothing to show.
-                    if (catalogsMap.isEmpty()) {
+                    // A settled failure cannot reuse the previous query's row or a loading placeholder.
+                    catalogOrder.remove(key)
+                    if (catalogsMap.values.none { it.items.isNotEmpty() }) {
                         _uiState.update { it.copy(error = result.message ?: context.getString(com.nuvio.tv.R.string.search_error_failed)) }
                     }
                     scheduleCatalogRowsUpdate()
@@ -780,10 +843,8 @@ class SearchViewModel @Inject constructor(
      * assignment back into [catalogsMap] is gated on that run still being current, so a late page
      * cannot merge into a different query's rows.
      */
-    private fun loadMoreCatalogItems(catalogId: String, addonId: String, type: String) {
-        val (key, currentRow) = catalogsMap.entries.firstOrNull { (_, row) ->
-            row.addonId == addonId && row.apiType == type && row.catalogId == catalogId
-        }?.let { it.key to it.value } ?: return
+    private fun loadMoreCatalogItems(key: String) {
+        val currentRow = catalogsMap[key] ?: return
 
         if (currentRow.isLoading || !currentRow.hasMore) {
             return
@@ -799,18 +860,12 @@ class SearchViewModel @Inject constructor(
         scheduleCatalogRowsUpdate()
 
         val job = viewModelScope.launch {
-            val addon = uiState.value.installedAddons.find { it.id == addonId && it.baseUrl == currentRow.addonBaseUrl }
-                ?: uiState.value.installedAddons.find { it.id == addonId } ?: run {
-                clearRowLoading(key, generation, query)
-                return@launch
-            }
-
             val nextSkip = currentRow.nextCatalogSkip()
             catalogRepository.getCatalog(
-                addonBaseUrl = addon.baseUrl,
-                addonId = addon.id,
-                addonName = addon.displayName,
-                catalogId = catalogId,
+                addonBaseUrl = currentRow.addonBaseUrl,
+                addonId = currentRow.addonId,
+                addonName = currentRow.addonName,
+                catalogId = currentRow.catalogId,
                 catalogName = currentRow.catalogName,
                 type = currentRow.apiType,
                 skip = nextSkip,
@@ -823,7 +878,7 @@ class SearchViewModel @Inject constructor(
                     is NetworkResult.Success -> {
                         if (!isCurrentSearch(generation, query)) return@collect
                         val latestRow = catalogsMap[key] ?: return@collect
-                        catalogsMap[key] = latestRow.mergeCatalogPage(result.data)
+                        catalogsMap[key] = latestRow.mergeCatalogPage(result.data.withSearchPageOffset(nextSkip))
                         scheduleCatalogRowsUpdate()
                     }
                     is NetworkResult.Error -> {
@@ -872,11 +927,7 @@ class SearchViewModel @Inject constructor(
                         it.stableKey() == key
                     }
             }.filterNotNull().filter { row ->
-                // Keep placeholder rows (shimmer) and rows with real items.
-                // Drop rows that came back empty from the API.
-                val isPlaceholder = row.isLoading &&
-                    row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
-                isPlaceholder || row.items.isNotEmpty()
+                row.hasMore || row.items.isNotEmpty()
             }
             val filteredRows = if (hideUnreleasedContent) {
                 val today = LocalDate.now()
@@ -899,274 +950,167 @@ class SearchViewModel @Inject constructor(
     private suspend fun searchAddons(): List<Addon> =
         addonRepository.getInstalledAddons().first().enabledAddons() + serverCatalog.searchAddons.first()
 
-    private suspend fun loadDiscoverCatalogs() {
-        if (_uiState.value.discoverLocation == DiscoverLocation.OFF) return
-        _uiState.update { it.copy(discoverLoading = true) }
-        val addons = try {
-            searchAddons()
-        } catch (_: Exception) {
-            _uiState.update { it.copy(discoverInitialized = true, discoverLoading = false) }
-            return
-        }
-
-        val discoverCatalogs = addons.flatMap { addon ->
-            addon.catalogs
-                .filter { catalog ->
-                    !(catalog.supportsExtra("search") &&
-                        catalog.extra.any { it.name.equals("search", ignoreCase = true) && it.isRequired })
-                }
-                .map { catalog ->
-                    val genres = catalog.extra
-                        .firstOrNull { it.name.equals("genre", ignoreCase = true) }
-                        ?.options
-                        .orEmpty()
-                    DiscoverCatalog(
-                        key = catalogRowLegacyKey(addon.id, catalog.apiType, catalog.id),
-                        addonId = addon.id,
-                        addonName = addon.displayName,
-                        addonBaseUrl = addon.baseUrl,
-                        catalogId = catalog.id,
-                        catalogName = catalog.name,
-                        type = catalog.apiType,
-                        genres = genres,
-                        supportsSkip = catalog.supportsExtra("skip"),
-                        skipStep = catalog.skipStep()
-                    )
-                }
-        }
-
-        val selectedCatalog = resolveDiscoverCatalog(
-            catalogs = discoverCatalogs,
-            preferredKey = discoverSelectionDataStore.getSelectedCatalogKey(),
-            currentKey = _uiState.value.selectedDiscoverCatalogKey
-        )
-        val selectedType = selectedCatalog?.type ?: "movie"
-        val selectedGenre: String? = null
-
-        _uiState.update {
-            it.copy(
-                installedAddons = addons,
-                discoverCatalogs = discoverCatalogs,
-                selectedDiscoverType = selectedType,
-                selectedDiscoverCatalogKey = selectedCatalog?.key,
-                selectedDiscoverGenre = selectedGenre,
-                discoverInitialized = true,
-                discoverLoading = false,
-                discoverResults = emptyList(),
-                pendingDiscoverResults = emptyList(),
-                discoverHasMore = true,
-                discoverPage = 1
-            )
-        }
-        selectedCatalog?.let { catalog ->
-            viewModelScope.launch {
-                discoverSelectionDataStore.setSelectedCatalogKey(catalog.key)
-            }
-        }
-        fetchDiscoverContent(reset = true)
+    internal suspend fun resolveDiscoverArtwork(item: MetaPreview): MetaPreview? = try {
+        withTimeoutOrNull(6_000) { searchArtwork.resolve(item) }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
     private fun selectDiscoverType(type: String) {
-        val catalogs = _uiState.value.discoverCatalogs
-        val selectedCatalog = pickDiscoverCatalog(
-            catalogs = catalogs,
-            selectedType = type,
-            preferredKey = _uiState.value.selectedDiscoverCatalogKey
-        )
-        val selectedGenre: String? = null
-        _uiState.update {
-            it.copy(
-                selectedDiscoverType = type,
-                selectedDiscoverCatalogKey = selectedCatalog?.key,
-                selectedDiscoverGenre = selectedGenre,
-                discoverResults = emptyList(),
-                pendingDiscoverResults = emptyList(),
-                discoverPage = 1,
-                discoverHasMore = true
-            )
+        if (type !in discoverTypes) return
+        applyDiscoverFilter { state ->
+            val catalog = DiscoverCatalogOption.entries.firstOrNull { it.key == state.selectedDiscoverCatalogKey && it.availableFor(type) }
+            state.copy(selectedDiscoverType = type, selectedDiscoverCatalogKey = (catalog ?: DiscoverCatalogOption.ALL).key)
         }
-        selectedCatalog?.let { catalog ->
-            viewModelScope.launch {
-                discoverSelectionDataStore.setSelectedCatalogKey(catalog.key)
-            }
-        }
-        fetchDiscoverContent(reset = true)
     }
 
-    private fun selectDiscoverCatalog(catalogKey: String) {
-        val catalog = _uiState.value.discoverCatalogs.firstOrNull { it.key == catalogKey } ?: return
+    private fun selectDiscoverCatalog(key: String) {
+        if (DiscoverCatalogOption.entries.any { it.key == key && it.availableFor(_uiState.value.selectedDiscoverType) }) {
+            applyDiscoverFilter { it.copy(selectedDiscoverCatalogKey = key) }
+        }
+    }
+
+    private fun clearDiscover() {
+        cancelDiscoverQuery()
         _uiState.update {
-            it.copy(
-                selectedDiscoverCatalogKey = catalog.key,
-                selectedDiscoverType = catalog.type,
-                selectedDiscoverGenre = null,
-                discoverResults = emptyList(),
-                pendingDiscoverResults = emptyList(),
-                discoverPage = 1,
-                discoverHasMore = true
-            )
+            it.copy(discoverInitialized = false, discoverLoading = false, discoverLoadingMore = false,
+                discoverTotal = null, discoverSources = emptyList(), discoverHasMore = false, discoverResults = emptyList(), discoverFailure = null,
+                selectedDiscoverType = DISCOVER_TYPE_ANY, selectedDiscoverCatalogKey = DiscoverCatalogOption.ALL.key,
+                selectedDiscoverGenre = null, discoverKeyword = "", discoverPeriod = DiscoverPeriod.ANY,
+                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING)
         }
-        viewModelScope.launch {
-            discoverSelectionDataStore.setSelectedCatalogKey(catalog.key)
+    }
+
+    private fun cancelDiscoverQuery() {
+        discoverGeneration++
+        discoverCriteriaJob?.cancel()
+        discoverJob?.cancel()
+        discoverRequest = null
+        discoverCursor = null
+    }
+
+    private fun setDiscoverKeyword(raw: String) {
+        val keyword = raw.trim()
+        applyDiscoverFilter { it.copy(discoverKeyword = keyword) }
+        if (!_uiState.value.discoverInitialized) ensureDiscoverLoaded()
+    }
+
+    private fun resetDiscoverFilters() {
+        applyDiscoverFilter {
+            it.copy(selectedDiscoverType = DISCOVER_TYPE_ANY, selectedDiscoverCatalogKey = DiscoverCatalogOption.ALL.key,
+                selectedDiscoverGenre = null, discoverKeyword = "", discoverPeriod = DiscoverPeriod.ANY,
+                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING)
         }
-        fetchDiscoverContent(reset = true)
     }
 
     private fun selectDiscoverGenre(genre: String?) {
-        _uiState.update {
-            it.copy(
-                selectedDiscoverGenre = genre,
-                discoverResults = emptyList(),
-                pendingDiscoverResults = emptyList(),
-                discoverPage = 1,
-                discoverHasMore = true
-            )
-        }
-        fetchDiscoverContent(reset = true)
+        if (genre == null || genre in discoverGenres) applyDiscoverFilter { it.copy(selectedDiscoverGenre = genre) }
     }
 
-    private fun loadNextDiscoverResults() {
-        if (_uiState.value.pendingDiscoverResults.isNotEmpty()) {
-            showMoreDiscoverResults()
-        } else {
-            revealBatchAfterNextDiscoverFetch = true
-            loadMoreDiscoverResults()
-        }
+    private fun applyDiscoverFilter(change: (SearchUiState) -> SearchUiState) {
+        val previous = _uiState.value
+        if (change(previous) == previous) return
+        _uiState.update(change)
+        if (_uiState.value.discoverInitialized) restartDiscoverQuery()
     }
 
-    private fun showMoreDiscoverResults() {
-        val pending = _uiState.value.pendingDiscoverResults
-        if (pending.isEmpty()) return
-        val nextBatch = pending.take(DISCOVER_SHOW_MORE_BATCH)
-        val remaining = pending.drop(DISCOVER_SHOW_MORE_BATCH)
-        _uiState.update {
-            it.copy(
-                discoverResults = it.discoverResults + nextBatch,
-                pendingDiscoverResults = remaining
-            )
-        }
-    }
-
-    private fun loadMoreDiscoverResults() {
-        val state = _uiState.value
-        if (state.query.trim().isNotEmpty()) return
-        if (!state.discoverHasMore || state.discoverLoadingMore || state.pendingDiscoverResults.isNotEmpty()) return
-        fetchDiscoverContent(reset = false)
-    }
-
-    private fun fetchDiscoverContent(reset: Boolean) {
-        discoverJob?.cancel()
-        discoverJob = viewModelScope.launch {
-            val state = _uiState.value
-            if (state.query.trim().isNotEmpty()) return@launch
-            val selectedCatalog = state.discoverCatalogs.firstOrNull { it.key == state.selectedDiscoverCatalogKey }
-                ?: return@launch
-
-            if (reset) {
-                revealBatchAfterNextDiscoverFetch = false
-                _uiState.update {
-                    it.copy(
-                        discoverLoading = true,
-                        discoverResults = emptyList(),
-                        pendingDiscoverResults = emptyList(),
-                        discoverPage = 1,
-                        discoverHasMore = true
+    private fun restartDiscoverQuery() {
+        val criteria = _uiState.value
+        if (!criteria.discoverInitialized || criteria.discoverLocation == DiscoverLocation.OFF) return
+        cancelDiscoverQuery()
+        val profileId = discoverProfileId
+        val generation = discoverGeneration
+        clearDiscoverPage()
+        discoverCriteriaJob = viewModelScope.launch {
+            try {
+                val watchMovies = criteria.discoverWatch != DiscoverWatch.ANY && criteria.selectedDiscoverType != "series"
+                val watchSeries = criteria.discoverWatch != DiscoverWatch.ANY && criteria.selectedDiscoverType != "movie"
+                val movies = if (watchMovies) watchProgressRepository.observeWatchedMovieIds() else flowOf(emptySet())
+                val series = if (watchSeries) watchedSeriesStateHolder.observeForProfile(profileId) else flowOf(emptySet())
+                combine(layoutPreferenceDataStore.hideUnreleasedContent, movies, series) { hide, seenMovies, seenSeries ->
+                    DiscoverSearchRequest(
+                        profileId = profileId, type = criteria.selectedDiscoverType,
+                        catalog = criteria.selectedDiscoverCatalogKey, genre = criteria.selectedDiscoverGenre,
+                        keyword = criteria.discoverKeyword, period = criteria.discoverPeriod.name.lowercase(),
+                        minRating = criteria.discoverMinRating, watch = criteria.discoverWatch.name.lowercase(),
+                        sort = criteria.discoverSort.name.lowercase(), hideUnreleased = hide,
+                        watchedMovies = seenMovies.sorted(), watchedSeries = seenSeries.sorted()
                     )
+                }.distinctUntilChanged().collect { request ->
+                    if (!isCurrentDiscover(generation, profileId)) return@collect
+                    discoverJob?.cancel()
+                    discoverJob = null
+                    discoverRequest = request
+                    discoverCursor = null
+                    clearDiscoverPage()
+                    fetchDiscoverPage()
                 }
-            } else {
-                _uiState.update { it.copy(discoverLoadingMore = true) }
-            }
-
-            val currentPage = if (reset) 1 else state.discoverPage + 1
-            val skip = if (currentPage <= 1) 0 else (currentPage - 1) * selectedCatalog.skipStep
-            val visibleCountBeforeRequest = state.discoverResults.size
-            val extraArgs = buildMap<String, String> {
-                state.selectedDiscoverGenre?.takeIf { it.isNotBlank() }?.let { put("genre", it) }
-            }
-
-            catalogRepository.getCatalog(
-                addonBaseUrl = selectedCatalog.addonBaseUrl,
-                addonId = selectedCatalog.addonId,
-                addonName = selectedCatalog.addonName,
-                catalogId = selectedCatalog.catalogId,
-                catalogName = selectedCatalog.catalogName,
-                type = selectedCatalog.type,
-                skip = skip,
-                skipStep = selectedCatalog.skipStep,
-                extraArgs = extraArgs,
-                supportsSkip = selectedCatalog.supportsSkip,
-                posterScreen = com.nuvio.tv.core.poster.CustomPosterScreen.SEARCH
-            ).collect { result ->
-                if (_uiState.value.discoverLocation == DiscoverLocation.OFF) return@collect
-                when (result) {
-                    is NetworkResult.Success -> {
-                        val incoming = result.data.items
-                        val existing = if (reset) {
-                            emptyList()
-                        } else {
-                            _uiState.value.discoverResults + _uiState.value.pendingDiscoverResults
-                        }
-                        val existingKeys = existing.asSequence()
-                            .map { "${it.apiType}:${it.id}" }
-                            .toSet()
-                        val hasNewUniqueIncoming = incoming.any { item ->
-                            "${item.apiType}:${item.id}" !in existingKeys
-                        }
-                        val merged = if (reset) incoming else (existing + incoming)
-                        val rawDeduped = merged.distinctBy { "${it.apiType}:${it.id}" }
-                        val deduped = if (hideUnreleasedContent) {
-                            val today = LocalDate.now()
-                            rawDeduped.filterNot { it.isUnreleased(today) }
-                        } else {
-                            rawDeduped
-                        }
-                        val shouldRevealBatch = !reset && revealBatchAfterNextDiscoverFetch
-                        val visibleLimit = if (reset) {
-                            DISCOVER_INITIAL_LIMIT
-                        } else if (shouldRevealBatch) {
-                            (visibleCountBeforeRequest + DISCOVER_SHOW_MORE_BATCH)
-                                .coerceAtLeast(DISCOVER_INITIAL_LIMIT)
-                        } else {
-                            visibleCountBeforeRequest.coerceAtLeast(DISCOVER_INITIAL_LIMIT)
-                        }
-                        val visible = deduped.take(visibleLimit)
-                        val pending = deduped.drop(visibleLimit)
-                        val shouldStopPagination = !reset && !hasNewUniqueIncoming
-                        _uiState.update {
-                            it.copy(
-                                discoverLoading = false,
-                                discoverLoadingMore = false,
-                                discoverResults = visible,
-                                pendingDiscoverResults = pending,
-                                discoverHasMore = if (shouldStopPagination) false else result.data.hasMore,
-                                discoverPage = if (shouldStopPagination) it.discoverPage else currentPage
-                            )
-                        }
-                        revealBatchAfterNextDiscoverFetch = false
-                    }
-                    is NetworkResult.Error -> {
-                        revealBatchAfterNextDiscoverFetch = false
-                        _uiState.update {
-                            it.copy(
-                                discoverLoading = false,
-                                discoverLoadingMore = false,
-                                discoverHasMore = false
-                            )
-                        }
-                    }
-                    NetworkResult.Loading -> Unit
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (isCurrentDiscover(generation, profileId)) {
+                    cancelDiscoverQuery()
+                    showDiscoverError()
                 }
             }
         }
     }
 
-    private fun pickDiscoverCatalog(
-        catalogs: List<DiscoverCatalog>,
-        selectedType: String,
-        preferredKey: String?
-    ): DiscoverCatalog? {
-        val filtered = catalogs.filter { it.type == selectedType }
-        return filtered.firstOrNull { it.key == preferredKey } ?: filtered.firstOrNull()
+    private fun isCurrentDiscover(generation: Long, profileId: Int): Boolean =
+        generation == discoverGeneration && profileId == profileManager.activeProfileId.value
+
+    private fun clearDiscoverPage() {
+        _uiState.update {
+            it.copy(discoverLoading = true, discoverLoadingMore = false, discoverResults = emptyList(),
+                discoverTotal = null, discoverSources = emptyList(), discoverHasMore = false, discoverFailure = null)
+        }
+    }
+
+    private fun showDiscoverError(failure: DiscoverFailure = DiscoverFailure.OTHER) {
+        _uiState.update { it.copy(discoverLoading = false, discoverLoadingMore = false, discoverFailure = failure) }
+    }
+
+    private fun fetchDiscoverPage() {
+        val request = discoverRequest ?: return
+        val generation = discoverGeneration
+        if (discoverJob?.isActive == true || !isCurrentDiscover(generation, request.profileId)) return
+        var cursor = discoverCursor
+        _uiState.update { it.copy(discoverLoading = cursor == null, discoverLoadingMore = cursor != null, discoverFailure = null) }
+        fun isCurrent() = isCurrentDiscover(generation, request.profileId) && discoverRequest === request
+        discoverJob = viewModelScope.launch {
+            try {
+                val page = try {
+                    discoverSearch.search(request.copy(cursor = cursor))
+                } catch (expired: DiscoverSnapshotExpiredException) {
+                    if (!isCurrent()) return@launch
+                    if (cursor == null) throw expired
+                    // A new snapshot must start with an empty grid and a fresh total.
+                    cursor = null
+                    discoverCursor = null
+                    clearDiscoverPage()
+                    discoverSearch.search(request)
+                }
+                if (!isCurrent()) return@launch
+                if (cursor != null) {
+                    val state = _uiState.value
+                    val newIds = page.items.mapTo(hashSetOf()) { it.apiType to it.id }
+                    check(state.discoverTotal == page.total && state.discoverResults.none { (it.apiType to it.id) in newIds })
+                }
+                discoverCursor = page.nextCursor
+                _uiState.update {
+                    it.copy(discoverResults = if (cursor == null) page.items else it.discoverResults + page.items,
+                        discoverTotal = page.total, discoverSources = page.sources,
+                        discoverHasMore = page.nextCursor != null,
+                        discoverLoading = false, discoverLoadingMore = false, discoverFailure = null)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (isCurrent()) showDiscoverError((error as? DiscoverServiceException)?.failure ?: DiscoverFailure.OTHER)
+            }
+        }
     }
 
     private fun buildSearchTargets(addons: List<Addon>): List<Pair<Addon, CatalogDescriptor>> {
@@ -1194,12 +1138,3 @@ class SearchViewModel @Inject constructor(
         return catalogRowStableKey(addonId, addonBaseUrl, type, catalogId)
     }
 }
-
-internal fun resolveDiscoverCatalog(
-    catalogs: List<DiscoverCatalog>,
-    preferredKey: String?,
-    currentKey: String?
-): DiscoverCatalog? =
-    catalogs.firstOrNull { it.key == preferredKey }
-        ?: catalogs.firstOrNull { it.key == currentKey }
-        ?: catalogs.firstOrNull()

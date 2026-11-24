@@ -1,5 +1,6 @@
 package com.nuvio.tv
 
+import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
@@ -121,6 +123,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.os.ConfigurationCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
@@ -156,6 +159,7 @@ import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.ThemeDataStore
+import com.nuvio.tv.data.repository.HouseholdRecommendations
 import com.nuvio.tv.data.repository.MemberAccessRepository
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.domain.model.AppFont
@@ -212,6 +216,7 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -231,6 +236,7 @@ data class SplashBackground(
 val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 
 private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
+private val discoverSearchKeys = setOf(KeyEvent.KEYCODE_SEARCH, KeyEvent.KEYCODE_ASSIST, KeyEvent.KEYCODE_VOICE_ASSIST)
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
 
@@ -267,6 +273,11 @@ private data class MainUiPrefs(
 
 @AndroidEntryPoint
 open class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var householdRecommendations: HouseholdRecommendations
+
+    private var recommendationsJob: Job? = null
 
     @Inject
     lateinit var themeDataStore: ThemeDataStore
@@ -330,6 +341,9 @@ open class MainActivity : ComponentActivity() {
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
+    // An empty phrase is a foreground key press asking us to listen.
+    private var pendingDiscoverVoice by mutableStateOf<String?>(null)
+    private var discoverSearchReady = false
 
     private lateinit var jankStats: JankStats
 
@@ -392,6 +406,11 @@ open class MainActivity : ComponentActivity() {
         val launchEpisode = intent?.getIntExtra("episode", -1)?.takeIf { it >= 0 }
         val launchEpisodeTitle = intent?.getStringExtra("episodeTitle")
         captureDeepLinkIntent(intent)
+        if (savedInstanceState == null) {
+            captureSearchIntent(intent)
+        } else {
+            pendingDiscoverVoice = savedInstanceState.getString(Screen.Discover.VOICE_REQUEST)
+        }
 
         setContent {
             var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
@@ -873,6 +892,27 @@ open class MainActivity : ComponentActivity() {
                     val currentRoute = optimisticRoute ?: actualRoute
                     startupDestination = startupDestinationForRoute(actualRoute ?: startDestination)
 
+                    val discoverAvailable = layoutChosen && !needsExperienceSelection &&
+                        discoverLocation != null && discoverLocation != DiscoverLocation.OFF && actualRoute != null
+                    DisposableEffect(discoverAvailable) {
+                        discoverSearchReady = discoverAvailable
+                        onDispose { discoverSearchReady = false }
+                    }
+                    LaunchedEffect(navController, discoverAvailable, discoverLocation, pendingDiscoverVoice) {
+                        val phrase = pendingDiscoverVoice ?: return@LaunchedEffect
+                        if (discoverLocation == DiscoverLocation.OFF) pendingDiscoverVoice = null
+                        if (!discoverAvailable) return@LaunchedEffect
+                        val target = Screen.Discover.route
+                        navigateToDrawerRoute(navController, navController.currentDestination?.route, target)
+                        // Restoring the drawer destination can also restore an open title detail.
+                        if (navController.currentDestination?.route != target) {
+                            navController.popBackStack(target, inclusive = false)
+                        }
+                        navController.currentBackStackEntry?.takeIf { it.destination.route == target }
+                            ?.savedStateHandle?.set(Screen.Discover.VOICE_REQUEST, phrase)
+                        pendingDiscoverVoice = null
+                    }
+
                     LaunchedEffect(actualRoute) {
                         optimisticRoute = null
                         ambientIdleController.onInteraction()
@@ -1045,27 +1085,13 @@ open class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    val rootRoutes = remember(discoverLocation) {
-                        buildSet {
-                            add(Screen.Home.route)
-                            add(Screen.Search.route)
-                            add(Screen.Library.route)
-                            add(Screen.Settings.route)
-                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
-                                add(Screen.Discover.route)
-                            }
-                        }
-                    }
-
                     val strNavHome = stringResource(R.string.nav_home)
-                    val strNavDiscover = stringResource(R.string.nav_discover)
-                    val strNavSearch = stringResource(R.string.nav_search)
+                    val strNavDiscover = stringResource(R.string.mkbtv_discover_name)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
                         strNavHome,
                         strNavDiscover,
-                        strNavSearch,
                         strNavLibrary,
                         strNavSettings,
                         discoverLocation
@@ -1078,7 +1104,7 @@ open class MainActivity : ComponentActivity() {
                                     icon = Icons.Default.Home
                                 )
                             )
-                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                            if (discoverLocation != null && discoverLocation != DiscoverLocation.OFF) {
                                 add(
                                     DrawerItem(
                                         route = Screen.Discover.route,
@@ -1087,13 +1113,6 @@ open class MainActivity : ComponentActivity() {
                                     )
                                 )
                             }
-                            add(
-                                DrawerItem(
-                                    route = Screen.Search.route,
-                                    label = strNavSearch,
-                                    iconRes = R.raw.sidebar_search
-                                )
-                            )
                             add(
                                 DrawerItem(
                                     route = Screen.Library.route,
@@ -1110,6 +1129,7 @@ open class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                    val rootRoutes = remember(drawerItems) { drawerItems.map(DrawerItem::route).toSet() }
                     val selectedDrawerRoute = drawerItems.firstOrNull { item ->
                         currentRoute == item.route || currentRoute?.startsWith("${item.route}/") == true
                     }?.route
@@ -1123,11 +1143,12 @@ open class MainActivity : ComponentActivity() {
                             backPressedOnce = false
                         }
                     }
+                    val confirmSidebarExit = confirmExitEnabled && currentRoute != Screen.Discover.route
                     val handleExitApp: () -> Unit = {
-                        if (!confirmExitEnabled || backPressedOnce) {
+                        if (!confirmSidebarExit || backPressedOnce) {
                             finishAffinity()
                             finishAndRemoveTask()
-                            if (confirmExitEnabled) {
+                            if (confirmSidebarExit) {
                                 // Kill the process to free RAM on low-memory devices.
                                 android.os.Process.killProcess(android.os.Process.myPid())
                             }
@@ -1167,6 +1188,7 @@ open class MainActivity : ComponentActivity() {
                                 if (modernSidebarEnabled) {
                                     ModernSidebarScaffold(
                                         longPressBackHeld = longPressBackHeld,
+                                        openDiscoverRequested = discoverAvailable && pendingDiscoverVoice != null,
                                         navController = navController,
                                         startDestination = startDestination,
                                         currentRoute = currentRoute,
@@ -1188,6 +1210,7 @@ open class MainActivity : ComponentActivity() {
                                 } else {
                                     LegacySidebarScaffold(
                                         longPressBackHeld = longPressBackHeld,
+                                        openDiscoverRequested = discoverAvailable && pendingDiscoverVoice != null,
                                         navController = navController,
                                         startDestination = startDestination,
                                         currentRoute = currentRoute,
@@ -1313,7 +1336,30 @@ open class MainActivity : ComponentActivity() {
         setIntent(intent)
         captureDeepLinkIntent(intent)
         captureLaunchIntent(intent)
+        captureSearchIntent(intent)
     }
+
+    private fun captureSearchIntent(intent: Intent?) {
+        val action = intent?.action ?: return
+        if (action != Intent.ACTION_SEARCH && action != "com.google.android.gms.actions.SEARCH_ACTION") return
+        intent.getStringExtra(SearchManager.QUERY)?.trim()?.takeIf(String::isNotEmpty)?.let {
+            pendingDiscoverVoice = it
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(Screen.Discover.VOICE_REQUEST, pendingDiscoverVoice)
+    }
+
+    override fun onSearchRequested(): Boolean {
+        if (!canStartDiscoverVoice()) return super.onSearchRequested()
+        pendingDiscoverVoice = ""
+        return true
+    }
+
+    private fun canStartDiscoverVoice() = discoverSearchReady && hasWindowFocus() &&
+        lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
 
     private fun captureDeepLinkIntent(intent: Intent?) {
         val url = intent?.dataString?.trim()?.takeIf(String::isNotBlank) ?: return
@@ -1350,6 +1396,10 @@ open class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (ambientIdleController.consumeKeyEvent(event)) return true
+        if (event.keyCode in discoverSearchKeys && canStartDiscoverVoice()) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) pendingDiscoverVoice = ""
+            return true
+        }
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (longPressBackHeld.value) {
                 if (event.action == KeyEvent.ACTION_UP) longPressBackHeld.value = false
@@ -1375,6 +1425,7 @@ open class MainActivity : ComponentActivity() {
         // tracked; onActivityResult keeps it for a completion or dismisses it otherwise.
         externalPlaybackTracker.raiseAutoNextOverlayOnReturn()
         super.onStart()
+        recommendationsJob = lifecycleScope.launch { householdRecommendations.observeVisit() }
         startupSyncService.startPeriodicSurfacePulls()
         androidTvChannelSyncService.onForegroundChanged(true)
     }
@@ -1382,6 +1433,8 @@ open class MainActivity : ComponentActivity() {
     override fun onStop() {
         externalPlaybackTracker.onExternalPlayerCoveredApp()
         super.onStop()
+        recommendationsJob?.cancel()
+        if (!isChangingConfigurations) householdRecommendations.endVisit()
         startupSyncService.stopPeriodicSurfacePulls()
         // App going to background (e.g. user returning to the launcher): reconcile the
         // Continue Watching channel once so Projectivy repaints it with fresh progress.
@@ -1419,6 +1472,7 @@ private fun SidebarFocusRecoveryEffect(
 @Composable
 private fun LegacySidebarScaffold(
     longPressBackHeld: MutableState<Boolean>,
+    openDiscoverRequested: Boolean,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -1440,11 +1494,6 @@ private fun LegacySidebarScaffold(
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val showSidebar = currentRoute in rootRoutes
 
-    LaunchedEffect(currentRoute) {
-        longPressBackHeld.value = false
-        drawerState.setValue(DrawerValue.Closed)
-    }
-
     val sidebarTokens = NuvioComponents.tokens.sidebar
     val closedDrawerWidth = if (sidebarCollapsed) NuvioTheme.spacing.none else sidebarTokens.legacyCollapsedWidth
     val openDrawerWidth = sidebarTokens.legacyExpandedWidth
@@ -1459,16 +1508,24 @@ private fun LegacySidebarScaffold(
     // resets while the user navigates between drawer items.
     var legacyDrawerInteractionVersion by remember { mutableStateOf(0) }
 
-
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
-        pendingSidebarFocusRequest = true
-        drawerState.setValue(DrawerValue.Open)
+    LaunchedEffect(currentRoute, openDiscoverRequested) {
+        longPressBackHeld.value = false
+        if (openDiscoverRequested && drawerState.currentValue == DrawerValue.Open) {
+            pendingSidebarFocusRequest = false
+            pendingContentFocusTransfer = true
+        }
+        drawerState.setValue(DrawerValue.Closed)
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Open) {
-        if (longPressBackHeld.value) return@BackHandler
-        onExitApp()
+    val handleSidebarBack: () -> Unit = {
+        if (drawerState.currentValue == DrawerValue.Closed) {
+            pendingSidebarFocusRequest = true
+            drawerState.setValue(DrawerValue.Open)
+        } else if (!longPressBackHeld.value) {
+            onExitApp()
+        }
     }
+    BackHandler(enabled = showSidebar, onBack = handleSidebarBack)
 
     LaunchedEffect(drawerState.currentValue, pendingContentFocusTransfer) {
         if (!pendingContentFocusTransfer || drawerState.currentValue != DrawerValue.Closed) {
@@ -1704,7 +1761,8 @@ private fun LegacySidebarScaffold(
                 NuvioNavHost(
                     navController = navController,
                     startDestination = startDestination,
-                    hideBuiltInHeaders = hideBuiltInHeaders
+                    hideBuiltInHeaders = hideBuiltInHeaders,
+                    onDiscoverBack = handleSidebarBack
                 )
             }
         }
@@ -1821,6 +1879,7 @@ private fun LegacySidebarButton(
 @Composable
 private fun ModernSidebarScaffold(
     longPressBackHeld: MutableState<Boolean>,
+    openDiscoverRequested: Boolean,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -1874,8 +1933,12 @@ private fun ModernSidebarScaffold(
     }
 
     // Collapse sidebar when navigating between root routes (e.g. Settings -> Home via Back)
-    LaunchedEffect(currentRoute) {
+    LaunchedEffect(currentRoute, openDiscoverRequested) {
         if (isSidebarExpanded && showSidebar) {
+            if (openDiscoverRequested) {
+                pendingSidebarFocusRequest = false
+                pendingContentFocusTransfer = true
+            }
             sidebarCollapsePending = true
         }
     }
@@ -1894,16 +1957,16 @@ private fun ModernSidebarScaffold(
         }
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
-        isSidebarExpanded = true
-        sidebarCollapsePending = false
-        pendingSidebarFocusRequest = true
+    val handleSidebarBack: () -> Unit = {
+        if (!isSidebarExpanded) {
+            isSidebarExpanded = true
+            sidebarCollapsePending = false
+            pendingSidebarFocusRequest = true
+        } else if (!sidebarCollapsePending && !longPressBackHeld.value) {
+            onExitApp()
+        }
     }
-
-    BackHandler(enabled = currentRoute in rootRoutes && isSidebarExpanded && !sidebarCollapsePending) {
-        if (longPressBackHeld.value) return@BackHandler
-        onExitApp()
-    }
+    BackHandler(enabled = showSidebar && !sidebarCollapsePending, onBack = handleSidebarBack)
 
     LaunchedEffect(sidebarCollapsePending, isSidebarExpanded, showSidebar) {
         if (!showSidebar || !sidebarCollapsePending) {
@@ -2106,7 +2169,8 @@ private fun ModernSidebarScaffold(
                 NuvioNavHost(
                     navController = navController,
                     startDestination = startDestination,
-                    hideBuiltInHeaders = hideBuiltInHeaders
+                    hideBuiltInHeaders = hideBuiltInHeaders,
+                    onDiscoverBack = handleSidebarBack
                 )
             }
         }
@@ -2215,11 +2279,7 @@ private fun ModernSidebarScaffold(
                 }
             }
 
-            if (
-                !sidebarCollapsed &&
-                sidebarShowCollapsedPill &&
-                selectedDrawerRoute != Screen.Search.route
-            ) {
+            if (!sidebarCollapsed && sidebarShowCollapsedPill) {
                 CollapsedSidebarPill(
                     label = selectedDrawerItem.label,
                     iconRes = selectedDrawerItem.iconRes,

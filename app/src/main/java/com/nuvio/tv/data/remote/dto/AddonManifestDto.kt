@@ -19,7 +19,12 @@ data class AddonManifestDto(
     @Json(name = "stremioAddonsConfig") val stremioAddonsConfig: StremioAddonsConfigDto? = null,
     @Json(name = "language") val language: String? = null,
     @Json(name = "configVersion") val configVersion: Long? = null,
-    @Json(name = "_timestamp") val timestamp: Long? = null
+    @Json(name = "_timestamp") val timestamp: Long? = null,
+    val seasonalOccurrence: String? = null,
+    val seasonalValidUntil: Long? = null,
+    val seasonalMovieIds: List<String>? = null,
+    val seasonalSeriesIds: List<String>? = null,
+    val householdRetryAfterMs: Long? = null
 )
 
 @JsonClass(generateAdapter = true)

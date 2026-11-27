@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.components
 
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import androidx.compose.ui.semantics.clearAndSetSemantics
 
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -272,10 +273,11 @@ fun CatalogRowSection(
         val raw = catalogRow.rawType.takeIf { it.isNotBlank() } ?: catalogRow.apiType
         localizedContentType(catalogContext, raw)
     }
-    val catalogTitle = remember(catalogRow.catalogName, typeLabel, showCatalogTypeSuffix) {
+    val seasonal = isSeasonalCatalog(catalogRow.addonId, catalogRow.catalogId)
+    val catalogTitle = remember(catalogRow.catalogName, typeLabel, showCatalogTypeSuffix, seasonal) {
         val formattedName = catalogRow.catalogName.replaceFirstChar { it.uppercase() }
         if (formattedName.isBlank()) ""
-        else if (showCatalogTypeSuffix && typeLabel.isNotEmpty()) "$formattedName - $typeLabel" else formattedName
+        else if (!seasonal && showCatalogTypeSuffix && typeLabel.isNotEmpty()) "$formattedName - $typeLabel" else formattedName
     }
 
     Column(modifier = modifier.fillMaxWidth().then(
@@ -299,7 +301,11 @@ fun CatalogRowSection(
                     style = MaterialTheme.typography.headlineMedium.copy(
                         textDirection = catalogTitle.contentTextDirection()
                     ),
-                    color = if (catalogTitle.isBlank()) Color.Transparent else NuvioTheme.colors.TextPrimary,
+                    color = when {
+                        catalogTitle.isBlank() -> Color.Transparent
+                        seasonal -> NuvioTheme.colors.FocusRing
+                        else -> NuvioTheme.colors.TextPrimary
+                    },
                     maxLines = 3,
                     overflow = TextOverflow.Clip
                 )

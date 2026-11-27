@@ -3,6 +3,9 @@ package com.nuvio.tv.ui.screens.home
 import com.nuvio.tv.domain.model.catalogTypeKey
 import com.nuvio.tv.domain.model.catalogRowLegacyKey
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.catalogsForHomeSettings
+import com.nuvio.tv.domain.model.seasonalHomeOrder
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
@@ -151,6 +154,14 @@ internal inline fun HomeViewModel.updateCatalogRow(
     }
 }
 
+internal fun HomeViewModel.removeCatalogRow(key: String) {
+    synchronized(catalogStateLock) {
+        val removed = catalogsMap.remove(key)
+        reindexCatalogRow(key, removed, null)
+        truncatedRowCache.remove(key)
+    }
+}
+
 internal fun HomeViewModel.clearCatalogData() {
     synchronized(catalogStateLock) {
         catalogsMap.clear()
@@ -280,7 +291,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
 
             synchronized(catalogStateLock) {
                 catalogOrder.clear()
-                catalogOrder.addAll(normalized)
+                catalogOrder.addAll(seasonalHomeOrder(normalized))
             }
         } else {
             // No saved order - manifest order + collections at end
@@ -304,7 +315,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
 
         synchronized(catalogStateLock) {
             catalogOrder.clear()
-            catalogOrder.addAll(mergedOrder)
+            catalogOrder.addAll(seasonalHomeOrder(mergedOrder, savedValid))
         }
     }
 }
@@ -328,7 +339,7 @@ internal fun insertNewBecauseWatchedSlots(saved: List<String>, available: List<S
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
     val orderedKeys = mutableListOf<String>()
     addons.forEach { addon ->
-        addon.catalogs
+        addon.catalogsForHomeSettings()
             .filterNot {
                 !it.shouldShowOnHome() || isCatalogDisabled(
                     addonBaseUrl = addon.baseUrl,
@@ -349,8 +360,11 @@ private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<St
                 }
             }
     }
-    return orderedKeys
+    return seasonalHomeOrder(orderedKeys)
 }
+
+internal fun HomeViewModel.catalogBelongsToActiveProfile(addonId: String, catalogId: String): Boolean =
+    !isSeasonalCatalog(addonId, catalogId) || addonId == "dk.mkb.nuvio.discovery.p${profileManager.activeProfileId.value}"
 
 internal fun HomeViewModel.isCatalogDisabled(
     addonBaseUrl: String,
@@ -359,6 +373,7 @@ internal fun HomeViewModel.isCatalogDisabled(
     catalogId: String,
     catalogName: String
 ): Boolean {
+    if (!catalogBelongsToActiveProfile(addonId, catalogId)) return true
     if (disableCatalogKey(addonBaseUrl, type, catalogId, catalogName) in disabledHomeCatalogKeys) {
         return true
     }
@@ -392,7 +407,7 @@ internal fun HomeViewModel.extractYear(releaseInfo: String?): String? {
 private fun buildAddonKeyOwnerMap(addons: List<Addon>): Map<String, String> {
     val map = mutableMapOf<String, String>()
     addons.forEach { addon ->
-        addon.catalogs.forEach { catalog ->
+        addon.catalogsForHomeSettings().forEach { catalog ->
             val key = catalogRowLegacyKey(addon.id, catalog.apiType, catalog.id)
             map[key] = addon.id
         }

@@ -89,6 +89,7 @@ class HomeViewModel @Inject constructor(
     internal val profileManager: com.nuvio.tv.core.profile.ProfileManager,
     internal val tvRecommendationManager: TvRecommendationManager,
     internal val serverCatalog: ServerCatalog,
+    internal val householdRecommendations: com.nuvio.tv.data.repository.HouseholdRecommendations,
     internal val metaPreviewEnricher: MetaPreviewEnricher = MetaPreviewEnricher(
         tmdbService,
         tmdbMetadataService,
@@ -237,6 +238,8 @@ class HomeViewModel @Inject constructor(
     internal var customCatalogTitles: Map<String, String> = emptyMap()
     internal var currentHeroCatalogKeys: List<String> = emptyList()
     internal var catalogUpdateJob: Job? = null
+    internal var seasonalExpiryJob: Job? = null
+    internal var seasonalFocusReleased = false
     internal var hasRenderedFirstCatalog = false
     internal val catalogLoadSemaphore = Semaphore(MAX_CATALOG_LOAD_CONCURRENCY)
     internal var pendingCatalogLoads = 0
@@ -382,6 +385,7 @@ class HomeViewModel @Inject constructor(
             observeProgressSourceChanges()
             observeCollections()
             observeInstalledAddons()
+            observeSeasonalHome()
             observeManualAddonRefresh()
 
             // Clear CW state when profile changes so items don't leak between profiles.
@@ -389,6 +393,9 @@ class HomeViewModel @Inject constructor(
             profileManager.activeProfileId.collect { newId ->
                 if (newId != previousProfileId) {
                     previousProfileId = newId
+                    rebuildCatalogOrder(addonsCache)
+                    expireSeasonalCatalogs()
+                    seasonalFocusReleased = true
                     // Cancel old pipeline — prevents racing writes from stale coroutines.
                     cwPipelineJob?.cancel()
                     cwPipelineJob = null
@@ -835,7 +842,9 @@ class HomeViewModel @Inject constructor(
 
     /** Called by the Home content when the focused row changes. */
     fun setLiveFocusedRowKey(rowKey: String?) {
+        val previous = liveFocusedRowKey
         liveFocusedRowKey = rowKey
+        if (previous != rowKey) releaseSeasonalFocus(previous)
         onFocusedRowChangedForMdbBatch(rowKey)
     }
 
@@ -861,6 +870,10 @@ class HomeViewModel @Inject constructor(
     }
 
     fun refreshHomeCatalogsIfStale() {
+        householdRecommendations.onHomeEntry()
+        releaseSeasonalFocus(liveFocusedRowKey, returningToHome = true)
+        expireSeasonalCatalogs()
+        scheduleSeasonalExpiry()
         if (addonsCache.isEmpty()) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastHomeCatalogRefreshAtMs < HOME_CATALOG_REFRESH_TTL_MS) return

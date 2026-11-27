@@ -3496,4 +3496,5 @@
         <item quantity="one">%1$d match</item>
         <item quantity="other">%1$d matches</item>
     </plurals>
+    <string name="seasonal_rewatch">Rewatch</string>
 </resources>

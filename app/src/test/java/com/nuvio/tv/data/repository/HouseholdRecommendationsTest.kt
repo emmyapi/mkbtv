@@ -48,4 +48,30 @@ class HouseholdRecommendationsTest {
         assertEquals((110L downTo 11L).map { "tt$it" }, rows.map { it.contentId })
         assertEquals(rows, recentHouseholdWatches(items.reversed(), 1000))
     }
+
+    @Test fun schedulesFromTheWinningBoundaryEvenWhenNoCatalogWasAdvertised() {
+        val now = 100_000L
+        assertEquals(3_600_000L, nextHouseholdCheckDelay(now + 8_000_000L, now))
+        assertEquals(20_000L, nextHouseholdCheckDelay(now + 20_000L, now))
+        assertEquals(60_000L, nextHouseholdCheckDelay(now + 8_000_000L, now, 60_000L))
+        assertEquals(5_000L, nextHouseholdCheckDelay(now - 1L, now, 0L))
+    }
+
+    @Test fun olderSeasonalMatchesAreCheckedWithoutExportingUnrelatedHistory() {
+        val items = (1L..110L).map { watch("movie", "tt$it", it) } +
+            listOf(watch("movie", "tt1", 5), watch("series", "tt2", 8), watch("movie", "tt4", 9, 1))
+        val seasonal = seasonalMovieWatches(items, setOf("tt1", "tt2", "tt4"), 1000)
+        assertEquals(listOf(HouseholdWatch("movie", "tt1", 5), HouseholdWatch("movie", "tt4", 4),
+            HouseholdWatch("movie", "tt2", 2)), seasonal)
+    }
+
+    @Test fun onlyActualEpisodeProgressForSelectedWholeSeriesLeavesTheDevice() {
+        fun progress(id: String, position: Long) = com.nuvio.tv.domain.model.WatchProgress(
+            contentId = id, contentType = "series", name = "Private", poster = null, backdrop = null,
+            logo = null, videoId = id, season = 1, episode = 1, episodeTitle = null, position = position,
+            duration = 100, lastWatched = 10)
+        val rows = listOf(progress("tt1", 0), progress("tt2", 2), progress("tt3", 90),
+            progress("tt4", 20), progress("tt1", 20).copy(episode = null), progress("tt1", 20).copy(contentType = "movie"))
+        assertEquals(listOf("tt2", "tt3"), seasonalProgressIds(rows, setOf("tt1", "tt2", "tt3")))
+    }
 }

@@ -21,7 +21,10 @@ data class CatalogRow(
     val skipStep: Int = 100,
     val nextSkip: Int = 0,
     val consecutiveDuplicatePages: Int = 0,
-    val extraArgs: Map<String, String> = emptyMap()
+    val extraArgs: Map<String, String> = emptyMap(),
+    val seasonalOccurrence: String? = null,
+    val seasonalValidUntil: Long? = null,
+    val seasonalRevision: Long? = null
 ) {
     val apiType: String
         get() = rawType.trim().ifBlank { type.toApiString() }

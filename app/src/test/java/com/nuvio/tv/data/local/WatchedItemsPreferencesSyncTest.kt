@@ -19,6 +19,25 @@ import org.junit.Test
 
 class WatchedItemsPreferencesSyncTest {
     @Test
+    fun `explicit household undos survive retries and acknowledgments are profile and timestamp scoped`() = runTest {
+        val prefs = harness().preferences
+        prefs.acceptHouseholdFeedback(1, emptyMap())
+        prefs.markAsWatched(WatchedItem("tt1", "movie", "", watchedAt = 20), 1)
+        prefs.unmarkAsWatched("tt1", profileId = 1)
+        val (watched, undone) = prefs.observeHouseholdHistory(1).first()
+        assertTrue(watched.isEmpty())
+        assertEquals(setOf("tt1"), undone.keys)
+        assertTrue(prefs.observeHouseholdHistory(2).first().second.isEmpty())
+        prefs.acceptHouseholdFeedback(1, mapOf("tt1" to 1L))
+        assertEquals(undone, prefs.observeHouseholdHistory(1).first().second)
+        prefs.acceptHouseholdFeedback(1, undone)
+        assertTrue(prefs.observeHouseholdHistory(1).first().second.isEmpty())
+        prefs.markAsWatched(WatchedItem("tt2", "movie", "", watchedAt = 30), 1)
+        prefs.replaceWithRemoteItems(emptyList(), profileId = 1)
+        assertTrue(prefs.observeHouseholdHistory(1).first().second.isEmpty())
+    }
+
+    @Test
     fun `snapshot is authoritative for non-pending items`() = runTest {
         val harness = harness()
         val local = item("local", 100L)

@@ -5,7 +5,10 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class CatalogResponseDto(
-    @Json(name = "metas") val metas: List<MetaPreviewDto?> = emptyList()
+    @Json(name = "metas") val metas: List<MetaPreviewDto?> = emptyList(),
+    val seasonalOccurrence: String? = null,
+    val seasonalValidUntil: Long? = null,
+    val configVersion: Long? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -36,5 +39,8 @@ data class MetaPreviewDto(
     @Json(name = "trailers") val trailers: List<MetaTrailerDto>? = null,
     @Json(name = "behaviorHints") val behaviorHints: MetaBehaviorHintsDto? = null,
     @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null,
-    @Json(name = "popularity") val popularity: Any? = null
+    @Json(name = "popularity") val popularity: Any? = null,
+    val seasonalRewatch: Boolean = false,
+    val seasonalRewatchAt: Long? = null,
+    @Json(name = "moviedb_id") val movieDbId: Any? = null
 )

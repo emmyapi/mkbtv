@@ -614,8 +614,9 @@ fun ContentCard(
                     )
                 }
 
-                if (isWatched) {
+                if (isWatched || item.seasonalRewatchAt != null) {
                     WatchedMarker(
+                        rewatch = item.seasonalRewatchAt != null,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = NuvioTheme.spacing.sm, top = NuvioTheme.spacing.sm)

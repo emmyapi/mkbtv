@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.activity.compose.BackHandler
@@ -398,6 +399,7 @@ fun ClassicHomeContent(
             currentFocusSnapshot.rowIndex = -2
             currentFocusSnapshot.itemIndex = 0
             currentFocusSnapshot.rowKey = "hero_carousel"
+            onFocusedRowKeyChanged(null)
             activeRowKeyState.value = null
             if (uiState.classicFocusGradientEnabled) {
                 focusedArtwork = null
@@ -429,6 +431,11 @@ fun ClassicHomeContent(
     // Lazy catalog loading: trigger load when rows approach visibility
     val latestOnRequestLazyCatalogLoad = rememberUpdatedState(onRequestLazyCatalogLoad)
     val latestVisibleHomeRows = rememberUpdatedState(visibleHomeRows)
+    val leadingSections = rememberUpdatedState(
+        (if (uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()) 1 else 0) +
+            (if (uiState.continueWatchingEnabled && uiState.continueWatchingItems.isNotEmpty()) 1 else 0)
+    )
+    val hasUpcomingSection = rememberUpdatedState(uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty())
     LaunchedEffect(columnListState) {
         val prefetchAhead = 1
         snapshotFlow {
@@ -442,12 +449,12 @@ fun ClassicHomeContent(
             // Only fires when visible indices stabilize for 240ms.
             delay(240)
             val rows = latestVisibleHomeRows.value
-            // Offset for hero + CW sections that precede homeRows in LazyColumn
-            val heroOffset = if (uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()) 1 else 0
-            val cwOffset = if (uiState.continueWatchingEnabled && uiState.continueWatchingItems.isNotEmpty()) 1 else 0
-            val rowsOffset = heroOffset + cwOffset
+            val firstCatalog = (rows.firstOrNull() as? HomeRow.Catalog)?.row
+            val upcomingPosition = if (isSeasonalCatalog(firstCatalog?.addonId, firstCatalog?.catalogId)) 1 else 0
             for (idx in firstVisible.coerceAtLeast(0)..(lastVisible + prefetchAhead)) {
-                val rowIdx = idx - rowsOffset
+                val section = idx - leadingSections.value
+                if (hasUpcomingSection.value && section == upcomingPosition) continue
+                val rowIdx = if (hasUpcomingSection.value && section > upcomingPosition) section - 1 else section
                 val row = rows.getOrNull(rowIdx) ?: continue
                 if (row is HomeRow.Catalog && row.row.isLoading &&
                     row.row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
@@ -711,7 +718,8 @@ fun ClassicHomeContent(
             }
         }
 
-        if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) {
+        fun upcomingSection() {
+            if (!uiState.continueWatchingEnabled || uiState.upcomingItems.isEmpty()) return
             item(key = "upcoming_section", contentType = "upcoming_section") {
                 LaunchedEffect(upcomingPendingScrollToStart.intValue) {
                     if (upcomingPendingScrollToStart.intValue > 0) {
@@ -794,16 +802,16 @@ fun ClassicHomeContent(
             }
         }
 
-        itemsIndexed(
-            items = visibleHomeRows,
-            key = { index, item ->
+        fun catalogRows(start: Int, end: Int) = itemsIndexed(
+            items = visibleHomeRows.subList(start, end),
+            key = { _, item ->
                 when (item) {
                     is HomeRow.Catalog -> {
                         val r = item.row
-                        "${r.stableKey()}_$index"
+                        r.stableKey()
                     }
                     is HomeRow.CollectionRow -> "collection_${item.collection.id}"
-                    is HomeRow.PlaceholderCatalog -> "${item.stableCatalogKey}_$index"
+                    is HomeRow.PlaceholderCatalog -> item.stableCatalogKey
                 }
             },
             contentType = { _, item ->
@@ -813,7 +821,8 @@ fun ClassicHomeContent(
                     is HomeRow.PlaceholderCatalog -> "catalog_row"
                 }
             }
-        ) { index, homeRow ->
+        ) { localIndex, homeRow ->
+            val index = localIndex + start
             when (homeRow) {
                 is HomeRow.Catalog -> {
                     val catalogRow = homeRow.row
@@ -829,7 +838,8 @@ fun ClassicHomeContent(
                     previousRowItemKeys[catalogKey] = currentItemKeys
                     // Match by saved row key first, fall back to index
                     val shouldRestoreFocus = restoringFocus &&
-                        (currentFocusSnapshot.rowKey == catalogKey || index == focusState.focusedRowIndex)
+                        (currentFocusSnapshot.rowKey == catalogKey ||
+                            (currentFocusSnapshot.rowKey !in visibleRowKeys && index == focusState.focusedRowIndex))
                     val shouldInitialFocusFirstCatalogRow =
                         shouldRequestInitialFocus &&
                             !heroVisible &&
@@ -899,7 +909,8 @@ fun ClassicHomeContent(
                     val collectionKey = "collection_${homeRow.collection.id}"
                     // Match by saved row key first, fall back to index
                     val shouldRestoreCollectionFocus = restoringFocus &&
-                        (currentFocusSnapshot.rowKey == collectionKey || index == focusState.focusedRowIndex)
+                        (currentFocusSnapshot.rowKey == collectionKey ||
+                            (currentFocusSnapshot.rowKey !in visibleRowKeys && index == focusState.focusedRowIndex))
                     val collectionFocusedItemIndex = if (shouldRestoreCollectionFocus) {
                         focusState.focusedItemIndex
                     } else {
@@ -937,6 +948,11 @@ fun ClassicHomeContent(
                 is HomeRow.PlaceholderCatalog -> { }
             }
         }
+        val first = (visibleHomeRows.firstOrNull() as? HomeRow.Catalog)?.row
+        val split = if (isSeasonalCatalog(first?.addonId, first?.catalogId)) 1 else 0
+        catalogRows(0, split)
+        upcomingSection()
+        catalogRows(split, visibleHomeRows.size)
     }
     }
     } // CompositionLocalProvider

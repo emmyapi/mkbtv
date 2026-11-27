@@ -19,7 +19,9 @@ from pathlib import Path
 import re
 import random
 import secrets
+import sqlite3
 import tempfile
+import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
@@ -28,8 +30,8 @@ from urllib.request import Request, urlopen
 from poster_art import PosterArt, TITLE_ID
 
 STATE = Path(os.environ.get('MKBTV_STATE_DIR', Path.home() / '.local/share/mkbtv'))
-ROOT = STATE / 'discovery'
-HISTORY = STATE / 'history'
+ROOT = Path(os.environ.get('MKBTV_DISCOVERY_DIR', STATE / 'discovery'))
+HISTORY = Path(os.environ.get('MKBTV_HISTORY_DIR', STATE / 'history'))
 CATALOG = 'https://catalog.nuvio.tv'
 CINEMETA = 'https://v3-cinemeta.strem.io'
 SIMKL = 'https://api.simkl.com'
@@ -164,16 +166,17 @@ def metadata_url(host, kind, content_id):
     return host + '/meta/' + kind + '/' + quote(content_id) + '.json'
 
 
-def metadata(root, kind, content_id):
+def metadata(root, kind, content_id, *, load=None):
+    load = load or fetch
     if kind not in TYPE or not ID.fullmatch(content_id):
         return None
     host = CINEMETA if content_id.startswith('tt') else CATALOG
     try:
-        data = fetch(root, metadata_url(host, kind, content_id), 7 * 86400)
+        data = load(root, metadata_url(host, kind, content_id), 7 * 86400)
     except DiscoveryError as error:
         if host == CINEMETA and str(error) in ('UPSTREAM_HTTP_404', 'UPSTREAM_HTTP_412'):
             try:
-                data = fetch(root, metadata_url(CATALOG, kind, content_id), 7 * 86400)
+                data = load(root, metadata_url(CATALOG, kind, content_id), 7 * 86400)
             except DiscoveryError as fallback_error:
                 if str(fallback_error) == 'UPSTREAM_HTTP_404':
                     return None
@@ -252,12 +255,13 @@ def genre_preferences(metas):
     return counts
 
 
-def related(root, seed):
+def related(root, seed, *, load=None):
+    load = load or fetch
     imdb = seed['id'] if seed['id'].startswith('tt') else seed.get('imdb_id', '')
     if not re.fullmatch(r'tt[0-9]{1,12}', imdb):
         return []
     path = 'movies' if seed['type'] == 'movie' else 'tv'
-    data = fetch(root, SIMKL + '/' + path + '/' + imdb + '?extended=full', 7 * 86400)
+    data = load(root, SIMKL + '/' + path + '/' + imdb + '?extended=full', 7 * 86400)
     if not isinstance(data, dict):
         raise DiscoveryError('SIMKL_RECOMMENDATIONS_INVALID')
     rows = data.get('users_recommendations')
@@ -312,7 +316,8 @@ def parse_tmdb_recommendations(body):
     return list(parser.keys)
 
 
-def tmdb_related(root, seed):
+def tmdb_related(root, seed, *, load=None):
+    load = load or fetch
     number = str(seed.get('moviedb_id', ''))
     if seed['id'].startswith('tmdb:'):
         number = seed['id'][5:]
@@ -320,7 +325,7 @@ def tmdb_related(root, seed):
         return []
     section = 'movie' if seed['type'] == 'movie' else 'tv'
     url = f'{TMDB}/{section}/{number}/remote/recommendations?version=1&translate=false'
-    return [tuple(key) for key in fetch(root, url, 7 * 86400)][:20]
+    return [tuple(key) for key in load(root, url, 7 * 86400)][:20]
 
 
 def interleave(movies, series, limit=60):
@@ -562,14 +567,29 @@ def update_profile(root, document, previous, session, excluded):
     watches = watched_unique(document)
     signature = hashlib.sha256(json.dumps([sorted(watches.items()), sorted(excluded)]).encode()).hexdigest()
     history_changed = signature != previous.get('history_signature')
+    seasonal_history = {kind + '/' + uid: at for (kind, uid), at in watches.items()}
+    seasonal_progress = sorted({entry['content_id'] for entry in document.get('progress', [])
+                                if entry.get('content_type') in ('tv', 'series')
+                                and isinstance(entry.get('position'), (int, float)) and entry['position'] > 0})
     session_id = session['session'] if session else previous.get('session')
     new_session = session_id != previous.get('session')
-    if session and not history_changed and previous.get('genre_source') == 'nuvio_trending':
-        if not new_session and snapshot == previous.get('client_snapshot') and live == previous.get('live_watched'):
+    if session and not history_changed and not previous.get('recommendations_pending') and previous.get('genre_source') == 'nuvio_trending':
+        if (not new_session and snapshot == previous.get('client_snapshot') and live == previous.get('live_watched')
+                and seasonal_history == previous.get('seasonal_history')
+                and seasonal_progress == previous.get('seasonal_progress')):
             return previous
         data = dict(previous)
     else:
-        data = build_profile(root, document, excluded, previous.get('rows', []))
+        try:
+            data = build_profile(root, document, excluded, previous.get('rows', []))
+        except DiscoveryError:
+            if not session or not previous.get('rows'):
+                raise
+            # The seasonal pool is already local. A failed remote recommendation lookup must
+            # not discard a valid watch or keep its old seasonal poster on Home.
+            return dict(previous, live_watched=live, client_snapshot=snapshot, session=session_id,
+                        seasonal_history=seasonal_history, seasonal_progress=seasonal_progress,
+                        recommendations_pending=True)
     previous_genres = [r['name'] for r in previous.get('rows', []) if r['id'].startswith('genre-')]
     pool = data['genre_pool']
     rotation = f'{session_id or ""}/{signature}'
@@ -577,9 +597,10 @@ def update_profile(root, document, previous, session, excluded):
         choose_genre_rows(data, previous, rotation)
     else:
         set_genre_rows(data, previous_genres, rotation)
+    data.pop('recommendations_pending', None)
     changed = data['rows'] != previous.get('rows') or history_changed
     data.update(live_watched=live, client_snapshot=snapshot, history_signature=signature, session=session_id,
-                genre_source='nuvio_trending',
+                genre_source='nuvio_trending', seasonal_history=seasonal_history, seasonal_progress=seasonal_progress,
                 exported_count=exported_count, source_capture=document['capture_finished_at'],
                 revision=previous.get('revision', 0) + int(changed))
     return data
@@ -642,7 +663,9 @@ def refresh(root, history, requested_profile=None, session=None):
             config['tokens'].setdefault(str(profile), secrets.token_urlsafe(32))
             summaries.append({'profile': profile, **data['summary']})
         # Prepare every profile before one atomic publication. Failed fetches leave all prior rows.
-        atomic_json(state_path, {'format': 'nuvio-discovery-v1', 'profiles': built})
+        with (root / '.publication.lock').open('a') as publication:
+            fcntl.flock(publication, fcntl.LOCK_EX)
+            atomic_json(state_path, {'format': 'nuvio-discovery-v1', 'profiles': built})
         if requested_profile is not None:
             return manifest(built[str(requested_profile)])
         config['tokens'] = {p: config['tokens'][p] for p in built}
@@ -659,18 +682,32 @@ def manifest(data):
             'behaviorHints': {'adult': False, 'p2p': False, 'configurable': False}}
 
 
-def response_for(root, config, path):
+def response_for(root, config, path, session=None):
     if path == '/health':
         return 200, {'status': 'ok'}
     parts = urlsplit(path).path.strip('/').split('/')
     profile = token_profile(config, parts[0])
     if profile is None:
         return 404, {'error': 'not_found'}
+    if parts[1:] in (['manifest.json'], ['catalog', 'mixed', 'seasonal.json']):
+        from seasonal_profile import profile_view
+        base, seasonal, info, version = profile_view(root, config, profile, session)
+        if base is None:
+            return 404, {'error': 'not_found'}
+        if parts[1] == 'manifest.json':
+            result = manifest(base)
+            if base.get('recommendations_pending'):
+                result['householdRetryAfterMs'] = 60000
+            if seasonal:
+                result['catalogs'].insert(0, {'id': 'seasonal', 'type': 'mixed', 'name': seasonal['name']})
+            return 200, dict(result, **info, configVersion=version)
+        return 200, {'metas': seasonal['metas'] if seasonal else [], 'configVersion': version,
+                     'seasonalOccurrence': info.get('seasonalOccurrence'),
+                     'seasonalValidUntil': info['seasonalValidUntil'], 'cacheMaxAge': 0,
+                     'staleRevalidate': 0, 'staleError': 0}
     data = json.loads((root / 'data' / 'catalogs.json').read_text()).get('profiles', {}).get(profile)
     if data is None:
         return 404, {'error': 'not_found'}
-    if len(parts) == 2 and parts[1] == 'manifest.json':
-        return 200, manifest(data)
     if len(parts) == 4 and parts[1:3] == ['catalog', 'mixed'] and parts[3].endswith('.json'):
         row = next((row for row in data['rows'] if row['id'] == parts[3][:-5]), None)
         if row:
@@ -690,15 +727,20 @@ def valid_session(value):
         return False
     rows = value.get('watched')
     now = int(time.time() * 1000)
-    return isinstance(rows, list) and len(rows) <= 100 and all(
-        isinstance(row, dict) and isinstance(row.get('type'), str) and row['type'] in TYPE and
-        isinstance(row.get('id'), str) and ID.fullmatch(row['id']) and
-        type(row.get('at')) is int and 0 < row['at'] <= now + 86400_000 for row in rows)
+    def events_ok(items, limit):
+        return isinstance(items, list) and len(items) <= limit and all(
+            isinstance(row, dict) and isinstance(row.get('type'), str) and row['type'] in TYPE and
+            isinstance(row.get('id'), str) and len(row['id']) <= 20 and ID.fullmatch(row['id']) and
+            type(row.get('at')) is int and 0 < row['at'] <= now + 86400_000 for row in items)
+    progress = value.get('seasonalInProgress', [])
+    return (events_ok(rows, 100) and events_ok(value.get('seasonalWatched', []), 512)
+            and events_ok(value.get('seasonalUnwatched', []), 512)
+            and isinstance(progress, list) and len(progress) <= 8 and all(
+                isinstance(uid, str) and len(uid) <= 20 and ID.fullmatch(uid) for uid in progress))
 
 
 def discover_response(root, profile, request):
     from discover_query import DATA, QueryError, query_page, uri
-    import sqlite3
     from contextlib import closing
     # A watch filter may read existing public ID mappings, but must never
     # trigger a fetch or cache write based on a profile's history.
@@ -792,7 +834,7 @@ def handler_for(root, history, public_origin=None):
             try:
                 current = json.loads((root / 'config.json').read_text())
                 status, value = response_for(root, current, self.path)
-            except (OSError, ValueError, KeyError):
+            except (DiscoveryError, OSError, sqlite3.Error, ValueError, KeyError):
                 status, value = 503, {'error': 'catalog_unavailable'}
             self.reply(status, value)
 
@@ -809,7 +851,7 @@ def handler_for(root, history, public_origin=None):
             invalid = {'error': 'invalid_query' if discover else 'invalid_session'}
             try:
                 size = int(self.headers.get('Content-Length', 0))
-                if not 0 < size <= (4 * 1024**2 if discover else 32768) or self.headers.get_content_type() != 'application/json':
+                if not 0 < size <= (4 * 1024**2 if discover else 128 * 1024) or self.headers.get_content_type() != 'application/json':
                     return self.reply(400, invalid)
                 session = json.loads(self.rfile.read(size))
             except (ValueError, UnicodeError, RecursionError):
@@ -827,10 +869,11 @@ def handler_for(root, history, public_origin=None):
             if not valid_session(session):
                 return self.reply(400, invalid)
             try:
-                updated = refresh(root, history, int(profile), session)
-            except (OSError, DiscoveryError, ValueError, KeyError):
+                refresh(root, history, int(profile), session)
+                status, updated = response_for(root, current, '/' + parts[0] + '/manifest.json', session)
+            except (OSError, DiscoveryError, sqlite3.Error, ValueError, KeyError):
                 return self.reply(503, {'error': 'catalog_unavailable'})
-            self.reply(200, updated)
+            self.reply(status, updated)
 
         def reply(self, status, value):
             body = json.dumps(value, ensure_ascii=False).encode()
@@ -863,20 +906,50 @@ def serve(root, history=HISTORY):
     elif config['listen'] in ('', '0.0.0.0'):
         raise DiscoveryError('PUBLIC_ORIGIN_REQUIRED_FOR_WILDCARD')
     server = ThreadingHTTPServer((config['listen'], config['port']), handler_for(root, history, origin))
-    server.serve_forever(poll_interval=1)
+    from seasonal_jobs import worker
+    stop = threading.Event()
+    background = threading.Thread(target=worker, args=(root, stop), name='seasonal-catalog', daemon=True)
+    background.start()
+    try:
+        server.serve_forever(poll_interval=1)
+    finally:
+        stop.set()
+        server.server_close()
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['refresh', 'serve'])
+    parser.add_argument('action', choices=['refresh', 'serve', 'refresh-seasonal', 'seasonal-preview'])
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--history', type=Path, default=HISTORY)
+    parser.add_argument('--at', help='Aware ISO-8601 instant for seasonal-preview')
+    parser.add_argument('--theme', help='Include public candidate evidence for this slug in seasonal-preview')
     args = parser.parse_args()
     try:
         if args.action == 'refresh':
             refresh(args.root, args.history)
-        else:
+        elif args.action == 'serve':
             serve(args.root, args.history)
+        elif args.action == 'refresh-seasonal':
+            from seasonal_jobs import prepare
+            print(json.dumps(prepare(args.root, all_themes=True)))
+        else:
+            from seasonal_jobs import preview
+            instant = datetime.fromisoformat(args.at) if args.at else datetime.now(timezone.utc)
+            if instant.tzinfo is None:
+                parser.error('--at requires a UTC offset')
+            output = preview(args.root, instant)
+            if args.theme:
+                from seasonal_calendar import THEMES
+                from seasonal_catalog import read_pool
+                if args.theme not in THEMES:
+                    parser.error('unknown seasonal theme')
+                pool = read_pool(args.root, args.theme, instant)
+                output['pool'] = {'theme': args.theme, 'generation': pool['generation'], 'complete': pool['complete'],
+                                  'editorial': [item['meta']['id'] for item in pool['editorial']],
+                                  'dynamic': [{'id': item['meta']['id'], 'refs': item['refs'], 'reason': item['reason']}
+                                              for item in pool['dynamic']]}
+            print(json.dumps(output))
     except (DiscoveryError, BlockingIOError) as error:
         print(json.dumps({'error': str(error) if isinstance(error, DiscoveryError) else 'REFRESH_ALREADY_RUNNING'}))
         raise SystemExit(1)

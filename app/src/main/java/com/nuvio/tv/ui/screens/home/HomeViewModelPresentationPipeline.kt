@@ -371,7 +371,7 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                             maxCatalogRows = warmStartCatalogRowCount
                         )
                     }
-                    if (_modernHomePresentation.value != warmStartPresentation) {
+                    if (input.homeRows === _uiState.value.homeRows && _modernHomePresentation.value != warmStartPresentation) {
                         _modernHomePresentation.value = warmStartPresentation
                     }
                 }
@@ -383,7 +383,7 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                         context = appContext
                     )
                 }
-                if (_modernHomePresentation.value != presentation) {
+                if (input.homeRows === _uiState.value.homeRows && _modernHomePresentation.value != presentation) {
                     _modernHomePresentation.value = presentation
                 }
             }

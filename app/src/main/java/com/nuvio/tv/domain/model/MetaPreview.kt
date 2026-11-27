@@ -37,7 +37,9 @@ data class MetaPreview(
     val sourceAddonBaseUrl: String? = null,
     val mdbListRatings: MDBListRatings? = null,
     val mdbListRatingOrder: List<String> = MDBListSettings.DEFAULT_RATING_ORDER,
-    val popularity: Double? = null
+    val popularity: Double? = null,
+    val seasonalRewatchAt: Long? = null,
+    val seasonalTmdbId: String? = null
 ) {
     val apiType: String
         get() = type.toApiString(rawType)

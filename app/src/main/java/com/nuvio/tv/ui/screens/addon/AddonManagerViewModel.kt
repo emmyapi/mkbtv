@@ -39,6 +39,8 @@ import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.catalogsForHomeSettings
+import com.nuvio.tv.domain.model.seasonalHomeOrder
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.ExperienceMode
@@ -314,7 +316,7 @@ class AddonManagerViewModel @Inject constructor(
                         for (ck in collectionKeysSet) {
                             if (ck !in result) result.add(ck)
                         }
-                        unifiedCatalogs = result.mapNotNull { catalogByKey[it] }
+                        unifiedCatalogs = seasonalHomeOrder(result).mapNotNull { catalogByKey[it] }
                     } else {
                         unifiedCatalogs = catalogInfos + collectionInfos
                     }
@@ -324,7 +326,7 @@ class AddonManagerViewModel @Inject constructor(
                     val savedOrder = homeCatalogOrderKeys
                     val orderedKeys = savedOrder.filter { it in catalogByKey }
                     val unseenKeys = catalogByKey.keys - orderedKeys.toSet()
-                    unifiedCatalogs = (orderedKeys + unseenKeys).mapNotNull { catalogByKey[it] }
+                    unifiedCatalogs = seasonalHomeOrder(orderedKeys + unseenKeys, orderedKeys).mapNotNull { catalogByKey[it] }
                 }
 
                 PageState(
@@ -825,7 +827,7 @@ class AddonManagerViewModel @Inject constructor(
         val savedSet = savedValid.toSet()
         val effectiveOrder = savedValid + defaultOrderKeys.filterNot { it in savedSet }
 
-        return effectiveOrder.mapNotNull { key ->
+        return seasonalHomeOrder(effectiveOrder, savedValid).mapNotNull { key ->
             val entry = entryByKey[key] ?: return@mapNotNull null
             entry.copy(
                 isDisabled = entry.disableKey in disabledKeys ||
@@ -839,7 +841,7 @@ class AddonManagerViewModel @Inject constructor(
         val seenKeys = mutableSetOf<String>()
 
         addons.enabledAddons().forEach { addon ->
-            addon.catalogs
+            addon.catalogsForHomeSettings()
                 .filterNot { it.isSearchOnlyCatalog() }
                 .forEach { catalog ->
                     val key = catalogKey(

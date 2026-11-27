@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import android.view.KeyEvent as AndroidKeyEvent
@@ -542,7 +543,7 @@ internal fun ModernRowSection(
             titleMediumStyle.copy(fontWeight = FontWeight.SemiBold)
         }
         val rowTitle = row.title
-        val textColor = NuvioTheme.colors.TextPrimary
+        val textColor = if (isSeasonalCatalog(row.addonId, row.catalogId)) NuvioTheme.colors.FocusRing else NuvioTheme.colors.TextPrimary
         val textModifier = remember(rowTitleBottom) {
             Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         }
@@ -1508,8 +1509,9 @@ private fun ModernCarouselCard(
                     )
                 }
 
-                if (isWatched) {
+                if (isWatched || item.metaPreview?.seasonalRewatchAt != null) {
                     WatchedMarker(
+                        rewatch = item.metaPreview?.seasonalRewatchAt != null,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = NuvioTheme.spacing.sm, top = NuvioTheme.spacing.sm)

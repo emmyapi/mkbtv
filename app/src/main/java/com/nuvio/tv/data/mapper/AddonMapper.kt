@@ -31,7 +31,11 @@ fun AddonManifestDto.toDomain(baseUrl: String): Addon {
         stremioAddonsConfig = stremioAddonsConfig?.toDomain(),
         manifestLanguage = language,
         configVersion = configVersion,
-        timestamp = timestamp
+        timestamp = timestamp,
+        seasonalOccurrence = seasonalOccurrence,
+        seasonalValidUntil = seasonalValidUntil,
+        seasonalMovieIds = seasonalMovieIds,
+        seasonalSeriesIds = seasonalSeriesIds
     )
 }
 

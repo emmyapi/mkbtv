@@ -529,5 +529,9 @@ class AddonRepositoryImpl(
             existing.behaviorHints != incoming.behaviorHints ||
             existing.stremioAddonsConfig != incoming.stremioAddonsConfig ||
             existing.manifestLanguage != incoming.manifestLanguage ||
-            existing.configVersion != incoming.configVersion
+            existing.configVersion != incoming.configVersion ||
+            existing.seasonalValidUntil != incoming.seasonalValidUntil ||
+            existing.seasonalOccurrence != incoming.seasonalOccurrence ||
+            existing.seasonalMovieIds != incoming.seasonalMovieIds ||
+            existing.seasonalSeriesIds != incoming.seasonalSeriesIds
 }

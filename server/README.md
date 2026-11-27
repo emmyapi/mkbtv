@@ -23,6 +23,8 @@ python -m pip install requests
 
 `MKBTV_STATE_DIR` defaults to the path shown. Use the same absolute path for the HTTP service and scheduled jobs. Account exports live in `history/`, profile tokens and recommendations in `discovery/`, and the shared SQLite databases in `catalog/`.
 
+For an existing installation with separate state locations, Discovery accepts optional absolute paths in `MKBTV_DISCOVERY_DIR`, `MKBTV_HISTORY_DIR` and `MKBTV_CATALOG_DIR`. Point them at the existing Discovery state, history export and published catalog indexes respectively. This preserves profile tokens and history in place.
+
 Choose one source of starting history.
 
 - **TV-only profiles.** Run `python nuvio-backup/backup.py init --profiles 1 2` once, substituting your TV profile numbers (1–6). This creates a verified, empty history without an account. The registered TV can then send recent watched titles for its active profile. Initialization refuses an existing manifest.
@@ -55,6 +57,37 @@ For full US subscription-provider catalogs, supply your own `WATCHMODE_API_KEY` 
 4. In the active TV profile's addon manager, add the URL `https://tv.example.org/<profile-token>/manifest.json`, using your server's actual origin and that profile's generated token. Do this separately for each profile. Each URL grants access to its profile. The app checks the selected origin and profile ID before sending searches and recent watched titles.
 
 Recommendation lookups send individual title IDs to metadata providers. Search matches use the local SQLite indexes. The TV can fetch a missing poster from a token-free `/poster/<IMDb-id>.jpg` route.
+
+## Seasonal Home shelf
+
+The Discovery server prepares the current calendar theme and the next 45 days of public movie data in the background. Keep the Python modules and `seasonal_themes.json` from the same revision together under `nuvio-discovery/`. All season calculations use the system time-zone database for Europe/Copenhagen. The worker stores provider data under the Discovery state directory. The existing profile token controls access to the lineup and viewing feedback.
+
+A fresh profile can see up to eight editorial choices and eight discoveries. The client uses the usual film or whole-series details screen and puts the combined row below **Continue Watching** by default. Watching a title refills its place from the same theme when a suitable replacement exists. A short row stays visible. An exhausted occurrence stays hidden for that profile until the calendar changes. New films can join an open occurrence on a successful catalog import.
+
+From the server directory, inspect the schedule without a TV, or advance a bounded batch of public-data preparation.
+
+```sh
+python nuvio-discovery/discovery.py seasonal-preview --at 2027-12-24T20:00:00+01:00 --theme christmas-favorites
+python nuvio-discovery/seasonal_calendar.py 2027
+python nuvio-discovery/discovery.py refresh-seasonal
+```
+
+To override the editorial school-break defaults, add a `seasonal_calendar` object to the existing private Discovery `config.json`. Use the school year's first and last dates (inclusive). The first day back belongs to the school year containing that summer holiday. Here is an example.
+
+```json
+{
+  "school_years": {
+    "2026-2027": {
+      "winter": {"first": "2027-02-20", "last": "2027-02-28"},
+      "first_day_back": "2027-08-09"
+    }
+  }
+}
+```
+
+The object also accepts `events` by year with organizer-confirmed Oscar and Eurovision dates, and `solstices` by year with an offset-bearing instant. The [calendar and editorial guide](../docs/seasonal-home.md) lists all 27 themes and explains scheduling priorities and how movies qualify.
+
+To remove an incorrect match, add its IMDb or `tmdb:` ID to the list for that theme in the top-level `seasonal_exclusions` object. Discovery applies an exclusion on the next Home refresh. Seasonal previews show each eligible discovery's original references and the matched story trait. Danish release dates and streaming, rental or purchase offers qualify films for this catalog.
 
 ## Nightly refresh
 

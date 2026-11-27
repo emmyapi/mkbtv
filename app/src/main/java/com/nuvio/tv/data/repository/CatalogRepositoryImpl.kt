@@ -11,6 +11,7 @@ import com.nuvio.tv.data.mediaserver.messageRes
 import com.nuvio.tv.data.mediaserver.serverFailure
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.remote.api.AddonApi
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.repository.CatalogRepository
@@ -65,6 +66,7 @@ class CatalogRepositoryImpl @Inject constructor(
 
         val url = buildCatalogUrl(addonBaseUrl, type, catalogId, skip, extraArgs)
         val isPrivateDiscovery = isHouseholdDiscoveryBase(addonBaseUrl)
+        val seasonal = isPrivateDiscovery && isSeasonalCatalog(addonId, catalogId)
         val logUrl = if (isPrivateDiscovery) "[private]" else url
         Log.d(
             TAG,
@@ -81,8 +83,17 @@ class CatalogRepositoryImpl @Inject constructor(
                 val enabledScreens = layoutPreferenceDataStore.customPosterEnabledScreens.first()
 
                 val items = result.data.metas
-                    .mapNotNull { it?.toDomainOrNull(type, addonBaseUrl) }
+                    .mapNotNull { dto ->
+                        val item = dto?.toDomainOrNull(type, addonBaseUrl) ?: return@mapNotNull null
+                        if (!seasonal) return@mapNotNull item
+                        if (item.apiType !in setOf("movie", "series")) return@mapNotNull null
+                        item.copy(
+                            seasonalRewatchAt = dto.seasonalRewatchAt.takeIf { dto.seasonalRewatch },
+                            seasonalTmdbId = dto.movieDbId?.toString()?.removeSuffix(".0")?.toLongOrNull()?.takeIf { it > 0 }?.let { "tmdb:$it" }
+                        )
+                    }
                     .distinctBy { it.id }
+                    .let { if (seasonal) it.take(16) else it }
                     .also { if (addonId == NUVIO_CATALOG_ID) searchArtwork.record(addonBaseUrl, it) }
                     .withCustomPosterUrls(
                         com.nuvio.tv.core.poster.patternForScreen(posterPattern, posterScreen, enabledScreens)
@@ -107,7 +118,10 @@ class CatalogRepositoryImpl @Inject constructor(
                     supportsSkip = supportsSkip,
                     skipStep = skipStep,
                     nextSkip = if (supportsSkip && rawItemCount > 0) skip + rawItemCount else skip,
-                    extraArgs = extraArgs
+                    extraArgs = extraArgs,
+                    seasonalOccurrence = result.data.seasonalOccurrence.takeIf { seasonal },
+                    seasonalValidUntil = result.data.seasonalValidUntil.takeIf { seasonal },
+                    seasonalRevision = result.data.configVersion.takeIf { seasonal }
                 )
                 emit(NetworkResult.Success(catalogRow))
             }

@@ -22,7 +22,11 @@ data class Addon(
     val manifestLanguage: String? = null,
     val configVersion: Long? = null,
     val timestamp: Long? = null,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val seasonalOccurrence: String? = null,
+    val seasonalValidUntil: Long? = null,
+    val seasonalMovieIds: List<String>? = null,
+    val seasonalSeriesIds: List<String>? = null
 ) {
     val isActive: Boolean
         get() = enabled

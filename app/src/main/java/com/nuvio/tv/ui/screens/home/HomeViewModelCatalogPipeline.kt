@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -136,6 +137,8 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
             .collectLatest { addons ->
                 val previous = addonsCache
                 addonsCache = addons
+                expireSeasonalCatalogs()
+                scheduleSeasonalExpiry()
                 val revisions = changedCatalogRevisions(previous, addons)
                 loadAllCatalogsPipeline(addons, revisedAddonUrls = revisions)
             }
@@ -260,7 +263,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 addon.catalogs
                     .filter { catalog ->
                         val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
-                        key in heroCatalogSet && key !in alreadyLoadingKeys && !catalog.isSearchOnlyCatalog()
+                        key in heroCatalogSet && key !in alreadyLoadingKeys && !catalog.isSearchOnlyCatalog() &&
+                            catalogBelongsToActiveProfile(addon.id, catalog.id)
                     }
                     .map { catalog -> addon to catalog }
             }
@@ -320,7 +324,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 catalogKey(addon.id, catalog.apiType, catalog.id) in loadedKeys
         }
         val (eager, lazy) = catalogsToLoad.withIndex().partition { (index, entry) ->
-            isGridLayout || index < eagerCatalogLoadCount || entry.first.baseUrl in revisedAddonUrls
+            isSeasonalCatalog(entry.first.id, entry.second.id) || isGridLayout ||
+                index < eagerCatalogLoadCount || entry.first.baseUrl in revisedAddonUrls
         }
         val eagerHomeCatalogs = eager.map { it.value }.filterNot(::alreadyCurrent)
         val lazyHomeCatalogs = lazy.map { it.value }.filterNot(::alreadyCurrent)
@@ -333,6 +338,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         lazyLoadRequestedKeys.clear()
 
         (eagerHomeCatalogs + lazyHomeCatalogs).forEach { (addon, catalog) ->
+            if (isSeasonalCatalog(addon.id, catalog.id)) return@forEach
             val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
             synchronized(catalogStateLock) {
                 placeholderDescriptors.add(
@@ -415,7 +421,7 @@ internal fun HomeViewModel.loadHeroCatalogsPipeline() {
         addon.catalogs
             .filter { catalog ->
                 val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
-                key in missingHeroKeys && !catalog.isSearchOnlyCatalog()
+                key in missingHeroKeys && !catalog.isSearchOnlyCatalog() && catalogBelongsToActiveProfile(addon.id, catalog.id)
             }
             .map { catalog -> addon to catalog }
     }
@@ -470,7 +476,9 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             type = catalog.apiType,
                             catalogId = catalog.id
                         )
-                        if (!isRefresh || !mergeRefreshedCatalogRow(key, result.data, requestedByUser, forceReplace)) {
+                        if (isSeasonalCatalog(addon.id, catalog.id)) {
+                            receiveSeasonalCatalog(key, result.data, addon)
+                        } else if (!isRefresh || !mergeRefreshedCatalogRow(key, result.data, requestedByUser, forceReplace)) {
                             replaceCatalogRow(key, result.data)
                         }
                         // Trigger MDBList batch for newly loaded catalog data.
@@ -598,7 +606,11 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
 }
 
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
-    val (orderedKeys, catalogSnapshot) = snapshotCatalogState()
+    val (orderedKeys, snapshot) = snapshotCatalogState()
+    val catalogSnapshot = snapshot.mapNotNull { (key, row) ->
+        val visible = if (isSeasonalCatalog(row.addonId, row.catalogId)) visibleSeasonalCatalog(row) else row
+        visible?.let { key to it }
+    }.toMap()
     val collectionsSnapshot = collectionsCache.associateBy { "collection_${it.id}" }
     val heroCatalogKeys = currentHeroCatalogKeys
     val currentLayout = _uiState.value.homeLayout
@@ -751,6 +763,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 placeholderDescriptors.associateBy { it.catalogKey }
             }
             val addedCollectionIds = mutableSetOf<String>()
+            val firstRow = displayRowsByKey[orderedKeys.firstOrNull()]
+            val seasonalFirst = firstRow?.takeIf { isSeasonalCatalog(it.addonId, it.catalogId) && it.items.isNotEmpty() }
+            seasonalFirst?.let { add(HomeRow.Catalog(it)) }
             collectionsCache.forEach { collection ->
                 val key = "collection_${collection.id}"
             if (collection.pinToTop && key !in disabledHomeCatalogKeys && addedCollectionIds.add(collection.id)) {
@@ -758,7 +773,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
         }
         for (key in orderedKeys) {
-            if (key in disabledHomeCatalogKeys) continue
+            if (key in disabledHomeCatalogKeys || (seasonalFirst != null && key == seasonalFirst.legacyKey())) continue
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
                 if (!collectionEntry.pinToTop && addedCollectionIds.add(collectionEntry.id)) {
@@ -917,6 +932,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         )
     }
 
+    seasonalFocusReleased = false
     val tmdbSettings = currentTmdbSettings
     val tmdbEnabledForCurrentLayout = tmdbSettings.enabled &&
         (currentLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
@@ -1207,7 +1223,7 @@ internal fun HomeViewModel.refreshVisibleCatalogsPipeline(requestedByUser: Boole
     val toRefresh = addonsCache.flatMap { addon ->
         addon.catalogs
             .filter { catalog ->
-                !catalog.isSearchOnlyCatalog() && catalogKey(
+                catalogBelongsToActiveProfile(addon.id, catalog.id) && !catalog.isSearchOnlyCatalog() && catalogKey(
                     addonId = addon.id,
                     type = catalog.apiType,
                     catalogId = catalog.id

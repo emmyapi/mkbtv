@@ -1,0 +1,3766 @@
+[
+  {
+    "slug": "the-morning-after",
+    "title": "The Morning After",
+    "rule": "Easy-entry comfort watch. Require a self-contained, warm comedy or family adventure with friendship, purpose or kindness at its center. A recognizable franchise on its own tells us little about tone.",
+    "signals": [
+      "found family",
+      "unlikely friendship",
+      "second chance",
+      "warmhearted",
+      "community spirit"
+    ],
+    "references": [
+      {
+        "id": "tt0332379",
+        "title": "School of Rock",
+        "type": "movie",
+        "year": 2003,
+        "traits": [
+          "music teacher",
+          "school band",
+          "unlikely mentor"
+        ],
+        "note": "A substitute teacher helps a class find its voice through music."
+      },
+      {
+        "id": "tt4468740",
+        "title": "Paddington 2",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "kindness",
+          "community spirit",
+          "unlikely friendship"
+        ],
+        "note": "Paddington's kindness builds a community even in an unfamiliar place."
+      },
+      {
+        "id": "tt0250494",
+        "title": "Legally Blonde",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "law school",
+          "self-discovery",
+          "self-confidence"
+        ],
+        "note": "A law student takes herself seriously and learns to trust her talents."
+      },
+      {
+        "id": "tt0120917",
+        "title": "The Emperor's New Groove",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "unlikely friendship",
+          "unlikely allies",
+          "friendship"
+        ],
+        "note": "A stranded emperor has to accept help from someone he dismissed."
+      },
+      {
+        "id": "tt2883512",
+        "title": "Chef",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "food truck",
+          "father and son",
+          "second chance"
+        ],
+        "note": "A food truck gives a chef and his son a fresh start together."
+      },
+      {
+        "id": "tt0093779",
+        "title": "The Princess Bride",
+        "type": "movie",
+        "year": 1987,
+        "traits": [
+          "fairy tale",
+          "storybook adventure",
+          "true love"
+        ],
+        "note": "A grandfather's tale frames a playful adventure about friendship and true love."
+      },
+      {
+        "id": "tt7979580",
+        "title": "The Mitchells vs. the Machines",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "family road trip",
+          "family reconciliation",
+          "family adventure"
+        ],
+        "note": "An awkward road trip gives a family a chance to understand each other."
+      },
+      {
+        "id": "tt5151570",
+        "title": "Mrs. Harris Goes to Paris",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "dream come true",
+          "unexpected friendship",
+          "acts of kindness"
+        ],
+        "note": "A cleaner pursuing a dream dress finds unexpected friends in Paris."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0105417",
+        "title": "Sister Act",
+        "type": "movie",
+        "year": 1992,
+        "traits": [
+          "choir",
+          "unlikely mentor",
+          "community spirit"
+        ],
+        "note": "A singer takes an inexperienced choir under her wing."
+      },
+      {
+        "id": "tt1204342",
+        "title": "The Muppets",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "reunion",
+          "save the theater",
+          "found family"
+        ],
+        "note": "Friends reunite the Muppets for a show to save their theater."
+      }
+    ]
+  },
+  {
+    "slug": "groundhog-day-on-repeat",
+    "title": "Groundhog Day on Repeat",
+    "rule": "The protagonist or another central character actually relives a period of time. Borrow the comic reset, puzzle or escalating survival premise from a seed. Ordinary time travel is too broad.",
+    "signals": [
+      "time loop",
+      "relives the same day",
+      "repeating day",
+      "repeatedly relives"
+    ],
+    "references": [
+      {
+        "id": "tt0107048",
+        "title": "Groundhog Day",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "same day",
+          "repeating day",
+          "time loop"
+        ],
+        "note": "A weather reporter experiences the same small-town celebration over and over."
+      },
+      {
+        "id": "tt9484998",
+        "title": "Palm Springs",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "wedding day",
+          "time loop",
+          "relive the same day"
+        ],
+        "note": "Two wedding guests have time to get to know each other across repeating days."
+      },
+      {
+        "id": "tt1631867",
+        "title": "Edge of Tomorrow",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "repeating battle",
+          "repeat the day",
+          "time loop"
+        ],
+        "note": "Each reset gives a soldier another chance to survive the same battle."
+      },
+      {
+        "id": "tt5308322",
+        "title": "Happy Death Day",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "birthday",
+          "repeated murder",
+          "reliving her death"
+        ],
+        "note": "A student investigates her own death through successive birthday resets."
+      },
+      {
+        "id": "tt0945513",
+        "title": "Source Code",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "eight minutes",
+          "repeated mission",
+          "train bombing"
+        ],
+        "note": "A soldier revisits the final minutes of a train journey to solve a bombing."
+      },
+      {
+        "id": "tt11080108",
+        "title": "The Map of Tiny Perfect Things",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "repeating day",
+          "time loop",
+          "perfect moments"
+        ],
+        "note": "Two teenagers catalogue small joys in their endlessly repeating day."
+      },
+      {
+        "id": "tt1691916",
+        "title": "Before I Fall",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "relives the same day",
+          "last day",
+          "time loop"
+        ],
+        "note": "A teenager revisits one school day and the choices she makes in it."
+      },
+      {
+        "id": "tt7638348",
+        "title": "Boss Level",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "assassins",
+          "repeating day",
+          "time loop"
+        ],
+        "note": "An ex-soldier learns to survive repeated attacks over successive versions of a day."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt3986820",
+        "title": "The Endless",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "repeating cycles",
+          "time loop",
+          "trapped in time"
+        ],
+        "note": "Two brothers revisit a rural community caught in repeating periods of time."
+      },
+      {
+        "id": "tt7293920",
+        "title": "The Fare",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "taxi ride",
+          "repeating journey",
+          "time loop"
+        ],
+        "note": "A cab driver and passenger meet again on the same stretch of road."
+      }
+    ]
+  },
+  {
+    "slug": "behind-the-mask",
+    "title": "Behind the Mask",
+    "rule": "A mask, disguise, masquerade or double life materially changes relationships or drives the action. A costume in one scene is insufficient.",
+    "signals": [
+      "secret identity",
+      "in disguise",
+      "double life",
+      "masquerade",
+      "impersonation"
+    ],
+    "references": [
+      {
+        "id": "tt0120746",
+        "title": "The Mask of Zorro",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "masked vigilante",
+          "secret identity",
+          "mantle"
+        ],
+        "note": "An apprentice takes up Zorro's mask and public role."
+      },
+      {
+        "id": "tt0317705",
+        "title": "The Incredibles",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "superhero family",
+          "secret identity",
+          "double life"
+        ],
+        "note": "A family's hidden superhero lives put pressure on their domestic life."
+      },
+      {
+        "id": "tt0120762",
+        "title": "Mulan",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "disguised as a man",
+          "impersonation",
+          "army"
+        ],
+        "note": "A daughter takes her father's place by passing as a male soldier."
+      },
+      {
+        "id": "tt0107614",
+        "title": "Mrs. Doubtfire",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "in disguise",
+          "nanny",
+          "double life"
+        ],
+        "note": "A father invents a nanny persona to stay close to his children."
+      },
+      {
+        "id": "tt0454945",
+        "title": "She's the Man",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "disguised as her brother",
+          "mistaken identity",
+          "soccer team"
+        ],
+        "note": "A teenager impersonates her brother to play on his team."
+      },
+      {
+        "id": "tt4633694",
+        "title": "Spider-Man: Into the Spider-Verse",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "masked superhero",
+          "secret identity",
+          "multiple identities"
+        ],
+        "note": "Miles has to grow into a masked identity of his own."
+      },
+      {
+        "id": "tt0356470",
+        "title": "A Cinderella Story",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "masked ball",
+          "secret admirer",
+          "masquerade"
+        ],
+        "note": "A masked dance lets two students meet without recognizing each other."
+      },
+      {
+        "id": "tt20215968",
+        "title": "Hit Man",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "undercover",
+          "assumed identity",
+          "double life"
+        ],
+        "note": "An undercover investigator's invented assassin persona complicates a relationship."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0053291",
+        "title": "Some Like It Hot",
+        "type": "movie",
+        "year": 1959,
+        "traits": [
+          "disguised as women",
+          "on the run",
+          "assumed identity"
+        ],
+        "note": "Two musicians join an all-woman band to evade pursuit."
+      },
+      {
+        "id": "tt0119094",
+        "title": "Face/Off",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "swapped identities",
+          "impersonation",
+          "undercover"
+        ],
+        "note": "A lawman and a criminal wear one another's faces."
+      }
+    ]
+  },
+  {
+    "slug": "its-complicated",
+    "title": "It's Complicated",
+    "rule": "Love is the central story. Use the references to span first love, misunderstandings, queer romance and adult relationships. A romance subplot in an action picture is too weak.",
+    "signals": [
+      "love story",
+      "romantic relationship",
+      "fall in love",
+      "first love",
+      "romantic comedy"
+    ],
+    "references": [
+      {
+        "id": "tt0147800",
+        "title": "10 Things I Hate About You",
+        "type": "movie",
+        "year": 1999,
+        "traits": [
+          "high school romance",
+          "fake dating",
+          "first love"
+        ],
+        "note": "A paid dating scheme collides with genuine feelings at school."
+      },
+      {
+        "id": "tt3846674",
+        "title": "To All the Boys I've Loved Before",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "love letters",
+          "fake dating",
+          "first love"
+        ],
+        "note": "Private love letters draw a teenager into a pretend relationship."
+      },
+      {
+        "id": "tt0098635",
+        "title": "When Harry Met Sally...",
+        "type": "movie",
+        "year": 1989,
+        "traits": [
+          "friends to lovers",
+          "longtime friends",
+          "adult romance"
+        ],
+        "note": "Two friends revisit the boundary between friendship and love across years."
+      },
+      {
+        "id": "tt0199725",
+        "title": "Love & Basketball",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "childhood sweethearts",
+          "athletes",
+          "relationship"
+        ],
+        "note": "Two basketball players negotiate love alongside their ambitions."
+      },
+      {
+        "id": "tt5462602",
+        "title": "The Big Sick",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "intercultural romance",
+          "family expectations",
+          "relationship"
+        ],
+        "note": "A couple's relationship has to make room for their families and an illness."
+      },
+      {
+        "id": "tt9683478",
+        "title": "The Half of It",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "love letters",
+          "queer romance",
+          "unrequited love"
+        ],
+        "note": "Writing another student's love letters complicates a girl's own first love."
+      },
+      {
+        "id": "tt3104988",
+        "title": "Crazy Rich Asians",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "family expectations",
+          "class difference",
+          "romantic relationship"
+        ],
+        "note": "A woman meets her partner's immensely wealthy family."
+      },
+      {
+        "id": "tt10172266",
+        "title": "Red, White & Royal Blue",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "rivals to lovers",
+          "queer romance",
+          "secret relationship"
+        ],
+        "note": "Two public figures try to keep their growing relationship private."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0384504",
+        "title": "Saving Face",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "queer romance",
+          "family expectations",
+          "secret relationship"
+        ],
+        "note": "A daughter navigates her own relationship and her mother's expectations."
+      },
+      {
+        "id": "tt5304992",
+        "title": "Set It Up",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "matchmaking",
+          "office romance",
+          "friends to lovers"
+        ],
+        "note": "Two assistants play matchmaker while growing closer to each other."
+      }
+    ]
+  },
+  {
+    "slug": "snowed-in",
+    "title": "Snowed In",
+    "rule": "Winter conditions, isolation or being stranded must change the choices people make. Allow warm winter company and tense survival films. A snowy establishing shot is weak evidence.",
+    "signals": [
+      "blizzard",
+      "stranded in the snow",
+      "winter isolation",
+      "frozen wilderness",
+      "avalanche"
+    ],
+    "references": [
+      {
+        "id": "tt0084787",
+        "title": "The Thing",
+        "type": "movie",
+        "year": 1982,
+        "traits": [
+          "antarctic research station",
+          "snowbound",
+          "isolation"
+        ],
+        "note": "An Antarctic winter cuts an isolated team off from help."
+      },
+      {
+        "id": "tt0116282",
+        "title": "Fargo",
+        "type": "movie",
+        "year": 1996,
+        "traits": [
+          "snow-covered",
+          "north dakota winter",
+          "minnesota winter"
+        ],
+        "note": "A kidnapping and its investigation play out on exposed, snowbound roads."
+      },
+      {
+        "id": "tt14849194",
+        "title": "The Holdovers",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "winter break",
+          "boarding school",
+          "stranded"
+        ],
+        "note": "The people left at a boarding school over winter break keep each other company."
+      },
+      {
+        "id": "tt2294629",
+        "title": "Frozen",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "eternal winter",
+          "ice and snow",
+          "frozen kingdom"
+        ],
+        "note": "An unnatural winter forces two sisters to act."
+      },
+      {
+        "id": "tt16277242",
+        "title": "Society of the Snow",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "andes",
+          "plane crash",
+          "snowbound survivors"
+        ],
+        "note": "Survivors of an Andean crash must endure snow and extreme cold."
+      },
+      {
+        "id": "tt3460252",
+        "title": "The Hateful Eight",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "blizzard",
+          "snowbound strangers",
+          "stagecoach"
+        ],
+        "note": "A blizzard forces travelers to take shelter together."
+      },
+      {
+        "id": "tt1706620",
+        "title": "Snowpiercer",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "frozen earth",
+          "perpetual winter",
+          "train"
+        ],
+        "note": "Relentless cold outside keeps the remnants of humanity on a train."
+      },
+      {
+        "id": "tt6820256",
+        "title": "Arctic",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "arctic survival",
+          "plane crash",
+          "polar wilderness"
+        ],
+        "note": "A stranded survivor must choose between shelter and a trek across the Arctic."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0397313",
+        "title": "Eight Below",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "antarctic winter",
+          "sled dogs",
+          "survival"
+        ],
+        "note": "Antarctic weather separates a guide from his sled dogs."
+      },
+      {
+        "id": "tt2121382",
+        "title": "Force Majeure",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "avalanche",
+          "ski holiday",
+          "family crisis"
+        ],
+        "note": "A near avalanche strains a family on a ski holiday."
+      }
+    ]
+  },
+  {
+    "slug": "the-one-that-got-away",
+    "title": "The One That Got Away",
+    "rule": "Confirm a Best Picture nomination and a different winner for that ceremony. Then compare the filmmaking or story with one of the eight. Admit current-year non-winners only after the result is official.",
+    "signals": [
+      "best picture nominee",
+      "academy award nominee",
+      "best picture nomination"
+    ],
+    "references": [
+      {
+        "id": "tt2543164",
+        "title": "Arrival",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "first contact",
+          "language barrier",
+          "grief"
+        ],
+        "note": "Best Picture nominee about communication during first contact.",
+        "best_picture": {
+          "ceremony_year": 2017,
+          "winner": "Moonlight",
+          "source": "https://www.oscars.org/oscars/ceremonies/2017"
+        }
+      },
+      {
+        "id": "tt1285016",
+        "title": "The Social Network",
+        "type": "movie",
+        "year": 2010,
+        "traits": [
+          "entrepreneurship",
+          "founding partners",
+          "betrayal"
+        ],
+        "note": "Best Picture nominee about a company's origins and fractured friendships.",
+        "best_picture": {
+          "ceremony_year": 2011,
+          "winner": "The King's Speech",
+          "source": "https://www.oscars.org/oscars/ceremonies/2011"
+        }
+      },
+      {
+        "id": "tt4925292",
+        "title": "Lady Bird",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "mother and daughter",
+          "coming of age",
+          "leaving home"
+        ],
+        "note": "Best Picture nominee about a high school senior's struggle for independence.",
+        "best_picture": {
+          "ceremony_year": 2018,
+          "winner": "The Shape of Water",
+          "source": "https://www.oscars.org/oscars/ceremonies/2018"
+        }
+      },
+      {
+        "id": "tt0119217",
+        "title": "Good Will Hunting",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "unlikely mentor",
+          "mathematical genius",
+          "therapy"
+        ],
+        "note": "Best Picture nominee about a young mathematician and a reluctant mentor.",
+        "best_picture": {
+          "ceremony_year": 1998,
+          "winner": "Titanic",
+          "source": "https://www.oscars.org/oscars/ceremonies/1998"
+        }
+      },
+      {
+        "id": "tt5052448",
+        "title": "Get Out",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "social satire",
+          "racism",
+          "meeting the family"
+        ],
+        "note": "Best Picture nominee using a first family visit for social horror.",
+        "best_picture": {
+          "ceremony_year": 2018,
+          "winner": "The Shape of Water",
+          "source": "https://www.oscars.org/oscars/ceremonies/2018"
+        }
+      },
+      {
+        "id": "tt3783958",
+        "title": "La La Land",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "aspiring artists",
+          "musical romance",
+          "artistic ambition"
+        ],
+        "note": "Best Picture nominee about love and artistic ambitions in Los Angeles.",
+        "best_picture": {
+          "ceremony_year": 2017,
+          "winner": "Moonlight",
+          "source": "https://www.oscars.org/oscars/ceremonies/2017"
+        }
+      },
+      {
+        "id": "tt13238346",
+        "title": "Past Lives",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "childhood sweethearts",
+          "immigration",
+          "reunion"
+        ],
+        "note": "Best Picture nominee about a reunion across countries and possible lives.",
+        "best_picture": {
+          "ceremony_year": 2024,
+          "winner": "Oppenheimer",
+          "source": "https://www.oscars.org/oscars/ceremonies/2024"
+        }
+      },
+      {
+        "id": "tt1517268",
+        "title": "Barbie",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "gender roles",
+          "existential crisis",
+          "social satire"
+        ],
+        "note": "Best Picture nominee exploring identity through a satirical fantasy.",
+        "best_picture": {
+          "ceremony_year": 2024,
+          "winner": "Oppenheimer",
+          "source": "https://www.oscars.org/oscars/ceremonies/2024"
+        }
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt4846340",
+        "title": "Hidden Figures",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "space program",
+          "women scientists",
+          "racial discrimination"
+        ],
+        "note": "Best Picture nominee about Black women's work in the space program.",
+        "best_picture": {
+          "ceremony_year": 2017,
+          "winner": "Moonlight",
+          "source": "https://www.oscars.org/oscars/ceremonies/2017"
+        }
+      },
+      {
+        "id": "tt5013056",
+        "title": "Dunkirk",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "wartime evacuation",
+          "interwoven timelines",
+          "military rescue"
+        ],
+        "note": "Best Picture nominee following an evacuation on land, at sea and in the air.",
+        "best_picture": {
+          "ceremony_year": 2018,
+          "winner": "The Shape of Water",
+          "source": "https://www.oscars.org/oscars/ceremonies/2018"
+        }
+      }
+    ]
+  },
+  {
+    "slug": "under-90-minutes",
+    "title": "Under 90 Minutes",
+    "rule": "Verify the feature's actual edition runs under 90 minutes. Match the examples' compact storytelling across animation, thrillers, romance and comedy. Exclude runtimes rounded down from 90 and unverified cuts.",
+    "signals": [
+      "compact storytelling",
+      "real time",
+      "single afternoon",
+      "short feature"
+    ],
+    "references": [
+      {
+        "id": "tt0130827",
+        "title": "Run Lola Run",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "race against time",
+          "multiple timelines",
+          "urgent mission"
+        ],
+        "note": "A short deadline shapes three variations on one urgent run.",
+        "runtime_minutes": 80,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0381681",
+        "title": "Before Sunset",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "real time",
+          "chance reunion",
+          "walk and talk"
+        ],
+        "note": "A couple have one Paris afternoon to reconnect.",
+        "runtime_minutes": 80,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0096283",
+        "title": "My Neighbor Totoro",
+        "type": "movie",
+        "year": 1988,
+        "traits": [
+          "childhood wonder",
+          "forest spirits",
+          "sisters"
+        ],
+        "note": "Two sisters encounter forest spirits in a compact family adventure.",
+        "runtime_minutes": 86,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0432283",
+        "title": "Fantastic Mr. Fox",
+        "type": "movie",
+        "year": 2009,
+        "traits": [
+          "animal heist",
+          "stop motion",
+          "family caper"
+        ],
+        "note": "A fox's raids launch a fast-moving caper for his family and neighbors.",
+        "runtime_minutes": 87,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt1060277",
+        "title": "Cloverfield",
+        "type": "movie",
+        "year": 2008,
+        "traits": [
+          "found footage",
+          "rescue mission",
+          "monster attack"
+        ],
+        "note": "A single handheld account follows a rescue during a monster attack.",
+        "runtime_minutes": 85,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt2347569",
+        "title": "Frances Ha",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "female friendship",
+          "young adulthood",
+          "aspiring dancer"
+        ],
+        "note": "Brief episodes trace a dancer's shifting friendships and living arrangements.",
+        "runtime_minutes": 86,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0027977",
+        "title": "Modern Times",
+        "type": "movie",
+        "year": 1936,
+        "traits": [
+          "silent comedy",
+          "physical comedy",
+          "factory worker"
+        ],
+        "note": "Physical gags follow a factory worker trying to find his footing.",
+        "runtime_minutes": 87,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt15893750",
+        "title": "Rye Lane",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "one day",
+          "walk and talk",
+          "breakup"
+        ],
+        "note": "Two Londoners recovering from breakups spend a day together.",
+        "runtime_minutes": 82,
+        "edition": "standard theatrical"
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt1478964",
+        "title": "Attack the Block",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "alien invasion",
+          "tower block",
+          "siege"
+        ],
+        "note": "A tower block becomes the focus of a compact alien siege.",
+        "runtime_minutes": 88,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt2872750",
+        "title": "Shaun the Sheep Movie",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "stop motion",
+          "silent comedy",
+          "city adventure"
+        ],
+        "note": "A flock's rescue mission unfolds almost entirely through visual gags.",
+        "runtime_minutes": 85,
+        "edition": "standard theatrical"
+      }
+    ]
+  },
+  {
+    "slug": "the-easter-mystery-club",
+    "title": "The Easter Mystery Club",
+    "rule": "A complete mystery with a question, investigation and resolution. Draw from manor-house suspects, family sleuths and modern detective comedies. A crime backdrop alone is insufficient.",
+    "signals": [
+      "murder mystery",
+      "whodunit",
+      "amateur sleuth",
+      "detective investigation",
+      "missing person"
+    ],
+    "references": [
+      {
+        "id": "tt0088930",
+        "title": "Clue",
+        "type": "movie",
+        "year": 1985,
+        "traits": [
+          "country house murder",
+          "multiple suspects",
+          "whodunit"
+        ],
+        "note": "A mansion dinner gives every guest a reason to investigate."
+      },
+      {
+        "id": "tt8946378",
+        "title": "Knives Out",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "family inheritance",
+          "country house murder",
+          "private detective"
+        ],
+        "note": "A detective examines a novelist's death among feuding relatives."
+      },
+      {
+        "id": "tt0071877",
+        "title": "Murder on the Orient Express",
+        "type": "movie",
+        "year": 1974,
+        "traits": [
+          "train murder",
+          "multiple suspects",
+          "private detective"
+        ],
+        "note": "An investigator questions the passengers of a stranded train."
+      },
+      {
+        "id": "tt7846844",
+        "title": "Enola Holmes",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "missing mother",
+          "young detective",
+          "amateur sleuth"
+        ],
+        "note": "A young investigator searches for her missing mother."
+      },
+      {
+        "id": "tt13640696",
+        "title": "See How They Run",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "backstage murder",
+          "detective duo",
+          "whodunit"
+        ],
+        "note": "Two detectives investigate a death in London's theater district."
+      },
+      {
+        "id": "tt8980602",
+        "title": "The Kid Detective",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "private detective",
+          "small town mystery",
+          "old case"
+        ],
+        "note": "A former child sleuth takes on a local teenager's murder."
+      },
+      {
+        "id": "tt0280707",
+        "title": "Gosford Park",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "country house murder",
+          "upstairs downstairs",
+          "multiple suspects"
+        ],
+        "note": "A country-house gathering puts guests and staff under suspicion."
+      },
+      {
+        "id": "tt2948356",
+        "title": "Zootopia",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "missing mammals",
+          "police investigation",
+          "unlikely partners"
+        ],
+        "note": "A rookie officer and a reluctant partner investigate disappearances."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0070291",
+        "title": "The Last of Sheila",
+        "type": "movie",
+        "year": 1973,
+        "traits": [
+          "yacht party",
+          "mystery game",
+          "multiple suspects"
+        ],
+        "note": "A producer invites a group onto a yacht for a revealing mystery game."
+      },
+      {
+        "id": "tt12718300",
+        "title": "Confess, Fletch",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "art theft",
+          "amateur sleuth",
+          "murder suspect"
+        ],
+        "note": "A murder suspect investigates an art theft to clear his name."
+      }
+    ]
+  },
+  {
+    "slug": "trust-no-one",
+    "title": "Trust No One",
+    "rule": "Look for a con, manufactured reality, deception or unreliable point of view at the heart of the film. Keep the explanation spoiler-safe.",
+    "signals": [
+      "confidence trick",
+      "con artist",
+      "elaborate deception",
+      "manufactured reality",
+      "unreliable narrator"
+    ],
+    "references": [
+      {
+        "id": "tt0120382",
+        "title": "The Truman Show",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "manufactured reality",
+          "surveillance",
+          "reality television"
+        ],
+        "note": "One man's ordinary surroundings conceal an elaborate production."
+      },
+      {
+        "id": "tt0119174",
+        "title": "The Game",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "elaborate game",
+          "staged events",
+          "paranoia"
+        ],
+        "note": "A mysterious game makes a banker doubt the events around him."
+      },
+      {
+        "id": "tt0070735",
+        "title": "The Sting",
+        "type": "movie",
+        "year": 1973,
+        "traits": [
+          "confidence trick",
+          "con artists",
+          "long con"
+        ],
+        "note": "Two grifters build an elaborate con against a powerful target."
+      },
+      {
+        "id": "tt0482571",
+        "title": "The Prestige",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "stage illusion",
+          "rival magicians",
+          "misdirection"
+        ],
+        "note": "Rival illusionists make professional secrets the center of their lives."
+      },
+      {
+        "id": "tt0325805",
+        "title": "Matchstick Men",
+        "type": "movie",
+        "year": 2003,
+        "traits": [
+          "confidence trick",
+          "con artists",
+          "long con"
+        ],
+        "note": "A confidence man's work and family life become entangled."
+      },
+      {
+        "id": "tt4016934",
+        "title": "The Handmaiden",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "confidence trick",
+          "false identity",
+          "multiple perspectives"
+        ],
+        "note": "An inheritance scheme unfolds through shifting points of view."
+      },
+      {
+        "id": "tt12573454",
+        "title": "Sharper",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "con artists",
+          "confidence trick",
+          "multiple perspectives"
+        ],
+        "note": "Swindlers and targets move through intersecting New York stories."
+      },
+      {
+        "id": "tt1670345",
+        "title": "Now You See Me",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "stage illusion",
+          "misdirection",
+          "heist"
+        ],
+        "note": "Illusionists turn stage magic into cover for an apparent heist."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0240772",
+        "title": "Ocean's Eleven",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "casino heist",
+          "misdirection",
+          "confidence trick"
+        ],
+        "note": "A crew uses layered deceptions to attempt a casino robbery."
+      },
+      {
+        "id": "tt0120176",
+        "title": "The Spanish Prisoner",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "confidence trick",
+          "corporate espionage",
+          "deception"
+        ],
+        "note": "A businessman's encounters draw him into a web of confidence tricks."
+      }
+    ]
+  },
+  {
+    "slug": "one-wild-planet",
+    "title": "One Wild Planet",
+    "rule": "Look for human impact on an ecosystem, survival within one, or sustained observation of nature. Link a title to a specific seed through ecology, conservation or wildlife. Landscapes alone are insufficient.",
+    "signals": [
+      "ecosystem",
+      "wildlife",
+      "conservation",
+      "ecology",
+      "environmental destruction"
+    ],
+    "references": [
+      {
+        "id": "tt0910970",
+        "title": "WALL-E",
+        "type": "movie",
+        "year": 2008,
+        "traits": [
+          "pollution",
+          "waste",
+          "environmental destruction"
+        ],
+        "note": "A lone robot sorts the waste left on an abandoned Earth."
+      },
+      {
+        "id": "tt0119698",
+        "title": "Princess Mononoke",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "deforestation",
+          "forest spirits",
+          "conservation"
+        ],
+        "note": "Industrial expansion pits an ironworks against a forest's inhabitants."
+      },
+      {
+        "id": "tt29623480",
+        "title": "The Wild Robot",
+        "type": "movie",
+        "year": 2024,
+        "traits": [
+          "wildlife",
+          "animal migration",
+          "adaptation"
+        ],
+        "note": "A robot learns to live alongside island wildlife and raise a gosling."
+      },
+      {
+        "id": "tt8969332",
+        "title": "The Biggest Little Farm",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "biodiversity",
+          "regenerative farming",
+          "ecosystem"
+        ],
+        "note": "A family documents rebuilding the soil and biodiversity on a farm."
+      },
+      {
+        "id": "tt0087544",
+        "title": "Nausicaä of the Valley of the Wind",
+        "type": "movie",
+        "year": 1984,
+        "traits": [
+          "pollution",
+          "toxic forest",
+          "ecosystem"
+        ],
+        "note": "A princess studies the forest that shapes life after an ecological disaster."
+      },
+      {
+        "id": "tt0428803",
+        "title": "March of the Penguins",
+        "type": "movie",
+        "year": 2005,
+        "traits": [
+          "antarctic wildlife",
+          "animal migration",
+          "penguins"
+        ],
+        "note": "A documentary follows emperor penguins through their breeding cycle."
+      },
+      {
+        "id": "tt12888462",
+        "title": "My Octopus Teacher",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "kelp forest",
+          "wildlife observation",
+          "octopus"
+        ],
+        "note": "A diver repeatedly observes one octopus in a kelp forest."
+      },
+      {
+        "id": "tt4772188",
+        "title": "Flow",
+        "type": "movie",
+        "year": 2024,
+        "traits": [
+          "flood",
+          "animal survival",
+          "ecosystem"
+        ],
+        "note": "Animals displaced by a flood share a boat as their habitat changes."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt1482459",
+        "title": "The Lorax",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "deforestation",
+          "conservation",
+          "industrial pollution"
+        ],
+        "note": "A tale of tree loss connects industry to a town's environmental choices."
+      },
+      {
+        "id": "tt0301727",
+        "title": "Winged Migration",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "bird migration",
+          "wildlife observation",
+          "migratory birds"
+        ],
+        "note": "The documentary follows birds along their migration routes."
+      }
+    ]
+  },
+  {
+    "slug": "may-the-fourth",
+    "title": "May the Fourth",
+    "rule": "Use canonical Star Wars story films and independently cataloged feature documentaries about making those films or the franchise itself. A documentary can match a specific opening film through its documented subject. General space opera, short featurettes and TV installments are out. The single-franchise exception applies here.",
+    "signals": [
+      "star wars",
+      "george lucas",
+      "lucasfilm",
+      "skywalker saga"
+    ],
+    "references": [
+      {
+        "id": "tt0076759",
+        "title": "Star Wars: Episode IV - A New Hope",
+        "type": "movie",
+        "year": 1977,
+        "traits": [
+          "a new hope",
+          "death star",
+          "luke skywalker"
+        ],
+        "note": "Luke joins the rebellion in the original Star Wars film."
+      },
+      {
+        "id": "tt0080684",
+        "title": "Star Wars: Episode V - The Empire Strikes Back",
+        "type": "movie",
+        "year": 1980,
+        "traits": [
+          "the empire strikes back",
+          "hoth",
+          "yoda"
+        ],
+        "note": "The rebellion retreats from Hoth while Luke seeks a teacher."
+      },
+      {
+        "id": "tt0086190",
+        "title": "Star Wars: Episode VI - Return of the Jedi",
+        "type": "movie",
+        "year": 1983,
+        "traits": [
+          "return of the jedi",
+          "endor",
+          "rebel alliance"
+        ],
+        "note": "The rebellion's mission on Endor closes the original trilogy."
+      },
+      {
+        "id": "tt0120915",
+        "title": "Star Wars: Episode I - The Phantom Menace",
+        "type": "movie",
+        "year": 1999,
+        "traits": [
+          "the phantom menace",
+          "naboo",
+          "qui-gon jinn"
+        ],
+        "note": "Jedi envoys intervene in the blockade of Naboo."
+      },
+      {
+        "id": "tt0121766",
+        "title": "Star Wars: Episode III - Revenge of the Sith",
+        "type": "movie",
+        "year": 2005,
+        "traits": [
+          "revenge of the sith",
+          "anakin skywalker",
+          "order 66"
+        ],
+        "note": "The third prequel follows Anakin and the Republic at a turning point."
+      },
+      {
+        "id": "tt2488496",
+        "title": "Star Wars: Episode VII - The Force Awakens",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "the force awakens",
+          "rey",
+          "first order"
+        ],
+        "note": "Rey and Finn are drawn into the Resistance's fight."
+      },
+      {
+        "id": "tt3748528",
+        "title": "Rogue One: A Star Wars Story",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "rogue one",
+          "death star plans",
+          "rebel alliance"
+        ],
+        "note": "A rebel team sets out to secure the Death Star plans."
+      },
+      {
+        "id": "tt1185834",
+        "title": "Star Wars: The Clone Wars",
+        "type": "movie",
+        "year": 2008,
+        "traits": [
+          "the clone wars",
+          "ahsoka tano",
+          "clone troopers"
+        ],
+        "note": "The standalone animated theatrical film pairs Anakin with Ahsoka."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt2527336",
+        "title": "Star Wars: Episode VIII - The Last Jedi",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "the last jedi",
+          "rey",
+          "luke skywalker"
+        ],
+        "note": "Rey seeks Luke while the Resistance faces the First Order."
+      },
+      {
+        "id": "tt3778644",
+        "title": "Solo: A Star Wars Story",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "solo: a star wars story",
+          "han solo",
+          "millennium falcon"
+        ],
+        "note": "The feature follows Han Solo's early life in the galactic underworld."
+      }
+    ]
+  },
+  {
+    "slug": "twelve-points",
+    "title": "Twelve Points!",
+    "rule": "Require Eurovision, a stage competition, or a musical act actually working towards a competitive performance. A pop soundtrack by itself is insufficient.",
+    "signals": [
+      "song contest",
+      "singing competition",
+      "battle of the bands",
+      "music competition",
+      "choir competition"
+    ],
+    "references": [
+      {
+        "id": "tt8580274",
+        "title": "Eurovision Song Contest: The Story of Fire Saga",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "eurovision",
+          "song contest",
+          "national selection"
+        ],
+        "note": "An Icelandic duo competes to represent its country at Eurovision."
+      },
+      {
+        "id": "tt1981677",
+        "title": "Pitch Perfect",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "a cappella",
+          "singing competition",
+          "collegiate championship"
+        ],
+        "note": "A university a cappella group prepares to compete."
+      },
+      {
+        "id": "tt3470600",
+        "title": "Sing",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "singing competition",
+          "audition",
+          "talent show"
+        ],
+        "note": "A theater stages a singing contest for local performers."
+      },
+      {
+        "id": "tt6483364",
+        "title": "Teen Spirit",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "singing competition",
+          "talent show",
+          "audition"
+        ],
+        "note": "A teenage singer auditions for a televised competition."
+      },
+      {
+        "id": "tt0976222",
+        "title": "Bandslam",
+        "type": "movie",
+        "year": 2009,
+        "traits": [
+          "battle of the bands",
+          "school band",
+          "music competition"
+        ],
+        "note": "High school musicians put a band together to compete."
+      },
+      {
+        "id": "tt1710396",
+        "title": "Joyful Noise",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "choir competition",
+          "gospel choir",
+          "competitive performance"
+        ],
+        "note": "Two choir leaders try to get their singers to a national contest."
+      },
+      {
+        "id": "tt2165933",
+        "title": "Let It Shine",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "rap battle",
+          "songwriting competition",
+          "competition"
+        ],
+        "note": "A young rapper's writing enters a songwriting competition."
+      },
+      {
+        "id": "tt12141112",
+        "title": "Metal Lords",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "battle of the bands",
+          "heavy metal band",
+          "school band"
+        ],
+        "note": "School friends want to enter their metal band into a competition."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0465142",
+        "title": "American Dreamz",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "televised talent show",
+          "singing competition",
+          "contestant"
+        ],
+        "note": "A televised singing contest becomes a political spectacle."
+      },
+      {
+        "id": "tt0191133",
+        "title": "The Fighting Temptations",
+        "type": "movie",
+        "year": 2003,
+        "traits": [
+          "gospel choir",
+          "choir competition",
+          "competitive performance"
+        ],
+        "note": "A musician recruits a choir for a gospel competition."
+      }
+    ]
+  },
+  {
+    "slug": "pride-on-screen",
+    "title": "Pride on Screen",
+    "rule": "An LGBTQ+ character, relationship, community or documented history is central to the story. Use an explicit synopsis or credible editorial evidence. Vary intimate romance, comedy and community history.",
+    "signals": [
+      "lgbtq",
+      "queer community",
+      "same-sex relationship",
+      "gay rights",
+      "coming out",
+      "lesbian romance"
+    ],
+    "references": [
+      {
+        "id": "tt0179116",
+        "title": "But I'm a Cheerleader",
+        "type": "movie",
+        "year": 1999,
+        "traits": [
+          "conversion therapy",
+          "lesbian romance",
+          "queer satire"
+        ],
+        "note": "A cheerleader discovers love at a conversion camp."
+      },
+      {
+        "id": "tt17527468",
+        "title": "Bottoms",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "lesbian teenagers",
+          "queer comedy",
+          "high school crush"
+        ],
+        "note": "Two queer high school friends start a club to meet girls."
+      },
+      {
+        "id": "tt3169706",
+        "title": "Pride",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "gay rights",
+          "queer activism",
+          "labor solidarity"
+        ],
+        "note": "Gay and lesbian activists organize support for striking miners."
+      },
+      {
+        "id": "tt4975722",
+        "title": "Moonlight",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "queer coming of age",
+          "sexual identity",
+          "gay man"
+        ],
+        "note": "Three stages of a man's life follow his search for intimacy and identity."
+      },
+      {
+        "id": "tt5164432",
+        "title": "Love, Simon",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "coming out",
+          "gay teenager",
+          "first love"
+        ],
+        "note": "A teenager navigates first love and coming out."
+      },
+      {
+        "id": "tt8613070",
+        "title": "Portrait of a Lady on Fire",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "lesbian romance",
+          "women artists",
+          "forbidden love"
+        ],
+        "note": "A painter and her subject develop an intimate relationship."
+      },
+      {
+        "id": "tt0109045",
+        "title": "The Adventures of Priscilla, Queen of the Desert",
+        "type": "movie",
+        "year": 1994,
+        "traits": [
+          "drag performers",
+          "queer community",
+          "road trip"
+        ],
+        "note": "Drag performers travel across Australia for a show."
+      },
+      {
+        "id": "tt0100332",
+        "title": "Paris Is Burning",
+        "type": "movie",
+        "year": 1990,
+        "traits": [
+          "ballroom culture",
+          "queer community",
+          "drag ball"
+        ],
+        "note": "A documentary records the voices and houses of New York's ballroom scene."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt32214413",
+        "title": "The Wedding Banquet",
+        "type": "movie",
+        "year": 2025,
+        "traits": [
+          "lavender marriage",
+          "queer couple",
+          "family expectations"
+        ],
+        "note": "Two queer couples negotiate family pressure and a marriage arrangement."
+      },
+      {
+        "id": "tt9683478",
+        "title": "The Half of It",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "queer teenager",
+          "love letters",
+          "lesbian romance"
+        ],
+        "note": "A teenager writes love letters to the girl she also likes."
+      }
+    ]
+  },
+  {
+    "slug": "made-in-denmark",
+    "title": "Made in Denmark",
+    "rule": "Confirm Danish production or a documented Danish-led co-production. Use the opening picks to bridge crime, dry comedy, family cinema and character drama. A Danish actor alone is insufficient.",
+    "signals": [
+      "danish production",
+      "danish cinema",
+      "danish co-production"
+    ],
+    "references": [
+      {
+        "id": "tt0063386",
+        "title": "The Olsen Gang",
+        "type": "movie",
+        "year": 1968,
+        "traits": [
+          "gang of thieves",
+          "bungled heist",
+          "crime comedy"
+        ],
+        "note": "A Copenhagen crew attempts an elaborate caper in Erik Balling's Danish comedy."
+      },
+      {
+        "id": "tt10288566",
+        "title": "Another Round",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "schoolteachers",
+          "midlife crisis",
+          "alcohol experiment"
+        ],
+        "note": "Thomas Vinterberg's Danish drama follows four teachers testing a drinking theory."
+      },
+      {
+        "id": "tt1526318",
+        "title": "Borgen",
+        "type": "series",
+        "year": 2010,
+        "traits": [
+          "coalition government",
+          "prime minister",
+          "political drama"
+        ],
+        "note": "The original Danish series follows a prime minister and her coalition."
+      },
+      {
+        "id": "tt0386820",
+        "title": "Terkel in Trouble",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "school bullying",
+          "dark comedy",
+          "animated comedy"
+        ],
+        "note": "The Danish animated feature puts a schoolboy under pressure from classmates."
+      },
+      {
+        "id": "tt0236027",
+        "title": "Flickering Lights",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "gang of thieves",
+          "rural hideout",
+          "dark comedy"
+        ],
+        "note": "A Danish crime comedy brings four gangsters to a deserted country inn."
+      },
+      {
+        "id": "tt8430054",
+        "title": "Flee",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "refugee testimony",
+          "animated documentary",
+          "exile"
+        ],
+        "note": "Jonas Poher Rasmussen uses animation to tell a friend's refugee story."
+      },
+      {
+        "id": "tt20561198",
+        "title": "The Promised Land",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "heathland",
+          "class conflict",
+          "historical drama"
+        ],
+        "note": "A Danish historical drama follows an attempted settlement on the Jutland heath."
+      },
+      {
+        "id": "tt6742252",
+        "title": "The Guilty",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "emergency dispatcher",
+          "single location",
+          "kidnapping"
+        ],
+        "note": "Gustav Möller's Danish thriller unfolds around an emergency call."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0092603",
+        "title": "Babette's Feast",
+        "type": "movie",
+        "year": 1987,
+        "traits": [
+          "village feast",
+          "rural community",
+          "culinary drama"
+        ],
+        "note": "A cook prepares a feast for a Danish religious community."
+      },
+      {
+        "id": "tt11655202",
+        "title": "Riders of Justice",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "grieving family",
+          "revenge",
+          "dark comedy"
+        ],
+        "note": "A Danish soldier joins an unusual group after a family tragedy."
+      }
+    ]
+  },
+  {
+    "slug": "midsummer-after-dark",
+    "title": "Midsummer After Dark",
+    "rule": "A folk ritual, local legend or witchcraft drives the story. Distinguish a story set at midsummer from a folk-horror or family-folklore neighbor. The Wicker Man qualifies through its May Day ritual.",
+    "signals": [
+      "folk ritual",
+      "local legend",
+      "witchcraft",
+      "pagan festival",
+      "folklore"
+    ],
+    "references": [
+      {
+        "id": "tt8772262",
+        "title": "Midsommar",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "midsummer festival",
+          "folk ritual",
+          "summer solstice"
+        ],
+        "note": "Visitors attend a Swedish community's midsummer rites."
+      },
+      {
+        "id": "tt0097814",
+        "title": "Kiki's Delivery Service",
+        "type": "movie",
+        "year": 1989,
+        "traits": [
+          "young witch",
+          "witchcraft",
+          "coming of age"
+        ],
+        "note": "A young witch must leave home to practice her craft independently."
+      },
+      {
+        "id": "tt0070917",
+        "title": "The Wicker Man",
+        "type": "movie",
+        "year": 1973,
+        "traits": [
+          "may day",
+          "pagan ritual",
+          "island community"
+        ],
+        "note": "A May Day festival and its local beliefs drive the island investigation."
+      },
+      {
+        "id": "tt5198068",
+        "title": "Wolfwalkers",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "irish folklore",
+          "wolf legend",
+          "shapeshifter"
+        ],
+        "note": "A young hunter meets the shapeshifting wolves of Irish legend."
+      },
+      {
+        "id": "tt0115963",
+        "title": "The Craft",
+        "type": "movie",
+        "year": 1996,
+        "traits": [
+          "coven",
+          "teenage witches",
+          "witchcraft"
+        ],
+        "note": "A newcomer joins a coven whose magic changes their relationships."
+      },
+      {
+        "id": "tt1865505",
+        "title": "Song of the Sea",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "selkie",
+          "irish folklore",
+          "celtic legend"
+        ],
+        "note": "A family adventure draws on the selkie legends of Ireland."
+      },
+      {
+        "id": "tt4263482",
+        "title": "The Witch",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "witchcraft",
+          "puritan folklore",
+          "forest"
+        ],
+        "note": "Fear of witchcraft fractures a family at the edge of a New England forest."
+      },
+      {
+        "id": "tt0120791",
+        "title": "Practical Magic",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "family of witches",
+          "witchcraft",
+          "family curse"
+        ],
+        "note": "Two sisters come from a family of witches living under a curse."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0485601",
+        "title": "The Secret of Kells",
+        "type": "movie",
+        "year": 2009,
+        "traits": [
+          "irish folklore",
+          "forest spirit",
+          "celtic legend"
+        ],
+        "note": "A young illuminator encounters a forest spirit outside his abbey."
+      },
+      {
+        "id": "tt5638642",
+        "title": "The Ritual",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "norse mythology",
+          "forest ritual",
+          "folk horror"
+        ],
+        "note": "Hikers in Sweden enter a forest shaped by an old local belief."
+      }
+    ]
+  },
+  {
+    "slug": "one-more-song",
+    "title": "One More Song",
+    "rule": "Give concert films, festival documentaries and fictional band stories distinct routes in. Confirm that the performance or the musicians' shared life is central. A hit soundtrack is insufficient.",
+    "signals": [
+      "concert film",
+      "band on tour",
+      "music festival",
+      "forming a band",
+      "live performance"
+    ],
+    "references": [
+      {
+        "id": "tt0181875",
+        "title": "Almost Famous",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "touring band",
+          "music journalist",
+          "life on the road"
+        ],
+        "note": "A teenage writer accompanies a rock band on tour."
+      },
+      {
+        "id": "tt28814949",
+        "title": "Taylor Swift: The Eras Tour",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "concert film",
+          "stadium tour",
+          "live performance"
+        ],
+        "note": "A filmed stadium concert stages songs from across Swift's career."
+      },
+      {
+        "id": "tt0088178",
+        "title": "Stop Making Sense",
+        "type": "movie",
+        "year": 1984,
+        "traits": [
+          "concert film",
+          "live performance",
+          "stage show"
+        ],
+        "note": "A Talking Heads concert builds its stage and ensemble song by song."
+      },
+      {
+        "id": "tt27674982",
+        "title": "The Ballad of Wallis Island",
+        "type": "movie",
+        "year": 2025,
+        "traits": [
+          "band reunion",
+          "private concert",
+          "folk duo"
+        ],
+        "note": "A private island performance brings estranged folk musicians back together."
+      },
+      {
+        "id": "tt0088258",
+        "title": "This Is Spinal Tap",
+        "type": "movie",
+        "year": 1984,
+        "traits": [
+          "touring band",
+          "rock mockumentary",
+          "life on the road"
+        ],
+        "note": "A mock documentary follows a band's troubled American tour."
+      },
+      {
+        "id": "tt7378922",
+        "title": "Summer of Soul",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "music festival",
+          "concert documentary",
+          "archival performance"
+        ],
+        "note": "Archival performances document Harlem's 1969 Cultural Festival."
+      },
+      {
+        "id": "tt3544112",
+        "title": "Sing Street",
+        "type": "movie",
+        "year": 2016,
+        "traits": [
+          "forming a band",
+          "school band",
+          "songwriting"
+        ],
+        "note": "Dublin schoolmates form a band and make their own songs and videos."
+      },
+      {
+        "id": "tt10147546",
+        "title": "Homecoming: A Film by Beyoncé",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "concert film",
+          "festival performance",
+          "rehearsal"
+        ],
+        "note": "Beyoncé documents the making and performance of her Coachella show."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0077838",
+        "title": "The Last Waltz",
+        "type": "movie",
+        "year": 1978,
+        "traits": [
+          "farewell concert",
+          "concert documentary",
+          "live performance"
+        ],
+        "note": "The Band stages a farewell concert with guest performers."
+      },
+      {
+        "id": "tt1727824",
+        "title": "Bohemian Rhapsody",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "rock band",
+          "live aid",
+          "band biography"
+        ],
+        "note": "The feature follows Freddie Mercury and Queen toward their Live Aid set."
+      }
+    ]
+  },
+  {
+    "slug": "out-of-town",
+    "title": "Out of Town",
+    "rule": "Travel, a summer stay or a holiday must change the story. Match new picks to road-trip comedy, family holidays or tense trips. Alternate those strands over a long summer window.",
+    "signals": [
+      "family vacation",
+      "road trip",
+      "summer holiday",
+      "summer camp",
+      "travel companions"
+    ],
+    "references": [
+      {
+        "id": "tt0085995",
+        "title": "National Lampoon's Vacation",
+        "type": "movie",
+        "year": 1983,
+        "traits": [
+          "family road trip",
+          "theme park",
+          "family vacation"
+        ],
+        "note": "A family's drive to a theme park repeatedly goes off course."
+      },
+      {
+        "id": "tt19770238",
+        "title": "Aftersun",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "father and daughter",
+          "summer holiday",
+          "holiday resort"
+        ],
+        "note": "A daughter reflects on a resort holiday with her father."
+      },
+      {
+        "id": "tt0449059",
+        "title": "Little Miss Sunshine",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "family road trip",
+          "beauty pageant",
+          "travel companions"
+        ],
+        "note": "A family drives across the country for a child's pageant."
+      },
+      {
+        "id": "tt7979580",
+        "title": "The Mitchells vs. the Machines",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "family road trip",
+          "college trip",
+          "family vacation"
+        ],
+        "note": "A trip to college leaves a family on the road together during a crisis."
+      },
+      {
+        "id": "tt3564472",
+        "title": "Girls Trip",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "girls trip",
+          "festival weekend",
+          "friends on vacation"
+        ],
+        "note": "Friends reconnect on a trip to a New Orleans festival."
+      },
+      {
+        "id": "tt0120783",
+        "title": "The Parent Trap",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "summer camp",
+          "family reunion",
+          "holiday swap"
+        ],
+        "note": "Twins meet at summer camp and swap homes."
+      },
+      {
+        "id": "tt0092890",
+        "title": "Dirty Dancing",
+        "type": "movie",
+        "year": 1987,
+        "traits": [
+          "summer resort",
+          "dance instructor",
+          "summer holiday"
+        ],
+        "note": "A stay at a family resort introduces a teenager to a dance instructor."
+      },
+      {
+        "id": "tt0245574",
+        "title": "Y Tu Mamá También",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "road trip",
+          "beach trip",
+          "travel companions"
+        ],
+        "note": "A journey to a Mexican beach changes the relationships between three travelers."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt1727388",
+        "title": "The Way Way Back",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "summer holiday",
+          "seaside town",
+          "family vacation"
+        ],
+        "note": "A teenager finds a place for himself during a summer away with family."
+      },
+      {
+        "id": "tt0838221",
+        "title": "The Darjeeling Limited",
+        "type": "movie",
+        "year": 2007,
+        "traits": [
+          "train journey",
+          "brothers",
+          "family trip"
+        ],
+        "note": "Three brothers attempt to reconnect during a railway journey through India."
+      }
+    ]
+  },
+  {
+    "slug": "fourth-of-july",
+    "title": "Fourth of July",
+    "rule": "Require a verified July Fourth setting, celebration, or Independence Day connection that materially affects the story, character or a memorable set piece. Cite the actual scene or biographical connection. An American setting or a July release is insufficient. In *The Sandlot*, fireworks give the kids their one nighttime game.",
+    "signals": [
+      "fourth of july",
+      "independence day",
+      "july 4",
+      "july fourth"
+    ],
+    "references": [
+      {
+        "id": "tt0116629",
+        "title": "Independence Day",
+        "type": "movie",
+        "year": 1996,
+        "traits": [
+          "alien invasion",
+          "military counterattack",
+          "independence day"
+        ],
+        "note": "The counterattack is coordinated on Independence Day."
+      },
+      {
+        "id": "tt0073195",
+        "title": "Jaws",
+        "type": "movie",
+        "year": 1975,
+        "traits": [
+          "fourth of july",
+          "holiday beach",
+          "beach crowds"
+        ],
+        "note": "The July Fourth crowds create pressure to keep Amity's beaches open."
+      },
+      {
+        "id": "tt0119345",
+        "title": "I Know What You Did Last Summer",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "fourth of july",
+          "holiday celebration",
+          "holiday accident"
+        ],
+        "note": "A Fourth of July outing sets the friends' shared secret in motion."
+      },
+      {
+        "id": "tt0108037",
+        "title": "The Sandlot",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "fourth of july",
+          "holiday fireworks",
+          "night game"
+        ],
+        "note": "Fourth of July fireworks illuminate the kids' one nighttime baseball game."
+      },
+      {
+        "id": "tt0091059",
+        "title": "Flight of the Navigator",
+        "type": "movie",
+        "year": 1986,
+        "traits": [
+          "fourth of july",
+          "holiday fireworks",
+          "holiday disappearance"
+        ],
+        "note": "A boy disappears on July Fourth after a fireworks outing."
+      },
+      {
+        "id": "tt1713476",
+        "title": "The Bay",
+        "type": "movie",
+        "year": 2012,
+        "traits": [
+          "fourth of july",
+          "holiday celebration",
+          "waterfront festival"
+        ],
+        "note": "A town's July Fourth waterfront celebration is the setting for an outbreak."
+      },
+      {
+        "id": "tt0068156",
+        "title": "1776",
+        "type": "movie",
+        "year": 1972,
+        "traits": [
+          "declaration of independence",
+          "continental congress",
+          "independence day"
+        ],
+        "note": "Congressional debate builds toward the Declaration of Independence."
+      },
+      {
+        "id": "tt3512900",
+        "title": "When Sparks Fly",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "fourth of july",
+          "fireworks celebration",
+          "holiday homecoming"
+        ],
+        "note": "A journalist returns home to cover her family's Fourth of July celebration."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt10337562",
+        "title": "Sister of the Bride",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "fourth of july",
+          "holiday wedding",
+          "independence day"
+        ],
+        "note": "Family wedding plans converge on the Fourth of July."
+      },
+      {
+        "id": "tt0068615",
+        "title": "Frogs",
+        "type": "movie",
+        "year": 1972,
+        "traits": [
+          "fourth of july",
+          "family celebration",
+          "holiday gathering"
+        ],
+        "note": "A family's Fourth of July birthday gathering coincides with a wildlife threat."
+      }
+    ]
+  },
+  {
+    "slug": "back-to-school",
+    "title": "Back to School",
+    "rule": "Require school life or the student/teacher experience to drive the main story. Alternate teen friendships, first-day nerves, classroom comedy and teacher dramas.",
+    "signals": [
+      "school life",
+      "schoolteacher",
+      "high school",
+      "school year",
+      "classroom",
+      "school friendships"
+    ],
+    "references": [
+      {
+        "id": "tt0377092",
+        "title": "Mean Girls",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "high school cliques",
+          "new student",
+          "school friendships"
+        ],
+        "note": "A new student learns the hierarchies of a high school."
+      },
+      {
+        "id": "tt1489887",
+        "title": "Booksmart",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "high school seniors",
+          "graduation",
+          "school friendships"
+        ],
+        "note": "Two friends reconsider their high school years just before graduation."
+      },
+      {
+        "id": "tt0088847",
+        "title": "The Breakfast Club",
+        "type": "movie",
+        "year": 1985,
+        "traits": [
+          "school detention",
+          "high school cliques",
+          "school friendships"
+        ],
+        "note": "A Saturday detention brings five unlike classmates together."
+      },
+      {
+        "id": "tt7014006",
+        "title": "Eighth Grade",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "middle school",
+          "last week of school",
+          "social anxiety"
+        ],
+        "note": "A teenager navigates the final days of eighth grade."
+      },
+      {
+        "id": "tt0112697",
+        "title": "Clueless",
+        "type": "movie",
+        "year": 1995,
+        "traits": [
+          "high school cliques",
+          "new student",
+          "school friendships"
+        ],
+        "note": "A student's attempts at matchmaking reorder her school friendships."
+      },
+      {
+        "id": "tt0094027",
+        "title": "Stand and Deliver",
+        "type": "movie",
+        "year": 1988,
+        "traits": [
+          "math teacher",
+          "classroom",
+          "high school students"
+        ],
+        "note": "A calculus teacher challenges his students to take an advanced exam."
+      },
+      {
+        "id": "tt3447590",
+        "title": "Roald Dahl's Matilda the Musical",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "school headmistress",
+          "gifted student",
+          "school rebellion"
+        ],
+        "note": "A gifted student's resistance to her headmistress drives the musical."
+      },
+      {
+        "id": "tt26612950",
+        "title": "The Teachers' Lounge",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "schoolteacher",
+          "classroom",
+          "school investigation"
+        ],
+        "note": "A teacher's attempt to resolve school thefts strains a whole classroom."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0463998",
+        "title": "Freedom Writers",
+        "type": "movie",
+        "year": 2007,
+        "traits": [
+          "schoolteacher",
+          "classroom",
+          "student writing"
+        ],
+        "note": "A teacher uses writing to bridge divisions in her classroom."
+      },
+      {
+        "id": "tt1068646",
+        "title": "The Class",
+        "type": "movie",
+        "year": 2008,
+        "traits": [
+          "classroom",
+          "schoolteacher",
+          "school year"
+        ],
+        "note": "A Paris teacher and his students work through a contentious school year."
+      }
+    ]
+  },
+  {
+    "slug": "halloween-after-dark",
+    "title": "Halloween After Dark",
+    "rule": "Give priority to films with a Halloween night, costume tradition or seasonal celebration central to the action. Allow editorially reviewed spooky-season traditions with specific thematic proof. An October release or horror label alone does not qualify.",
+    "signals": [
+      "halloween",
+      "trick or treat",
+      "all hallows eve",
+      "halloween costumes",
+      "haunted attraction"
+    ],
+    "references": [
+      {
+        "id": "tt0107120",
+        "title": "Hocus Pocus",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "halloween night",
+          "witches",
+          "trick or treat"
+        ],
+        "note": "Three witches return to Salem on Halloween night."
+      },
+      {
+        "id": "tt11426232",
+        "title": "Totally Killer",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "halloween night",
+          "masked killer",
+          "costume"
+        ],
+        "note": "A Halloween attack sends a teenager back to an earlier series of murders."
+      },
+      {
+        "id": "tt0077651",
+        "title": "Halloween",
+        "type": "movie",
+        "year": 1978,
+        "traits": [
+          "halloween night",
+          "babysitter",
+          "masked killer"
+        ],
+        "note": "A masked killer stalks suburban babysitters on Halloween."
+      },
+      {
+        "id": "tt0385880",
+        "title": "Monster House",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "halloween night",
+          "trick or treat",
+          "haunted house"
+        ],
+        "note": "Children try to stop a dangerous house before trick-or-treaters arrive."
+      },
+      {
+        "id": "tt0862856",
+        "title": "Trick 'r Treat",
+        "type": "movie",
+        "year": 2007,
+        "traits": [
+          "halloween traditions",
+          "halloween night",
+          "trick or treat"
+        ],
+        "note": "Interlocking stories follow a town's Halloween customs and celebrations."
+      },
+      {
+        "id": "tt0173886",
+        "title": "Halloweentown",
+        "type": "movie",
+        "year": 1998,
+        "traits": [
+          "halloween town",
+          "witch family",
+          "halloween night"
+        ],
+        "note": "A girl discovers a town of Halloween creatures through her grandmother."
+      },
+      {
+        "id": "tt0107688",
+        "title": "The Nightmare Before Christmas",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "halloween town",
+          "halloween traditions",
+          "pumpkin king"
+        ],
+        "note": "Halloween Town's Pumpkin King tries to take charge of a second holiday."
+      },
+      {
+        "id": "tt15289240",
+        "title": "The Curse of Bridge Hollow",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "halloween decorations",
+          "halloween night",
+          "haunted town"
+        ],
+        "note": "A father and daughter face Halloween decorations brought to life."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt6535880",
+        "title": "Haunt",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "halloween night",
+          "haunted attraction",
+          "haunted house"
+        ],
+        "note": "Friends enter an extreme haunted attraction on Halloween."
+      },
+      {
+        "id": "tt10682266",
+        "title": "Hubie Halloween",
+        "type": "movie",
+        "year": 2020,
+        "traits": [
+          "halloween night",
+          "salem",
+          "halloween celebration"
+        ],
+        "note": "A Salem resident patrols the town during its Halloween celebration."
+      }
+    ]
+  },
+  {
+    "slug": "cabin-weekend",
+    "title": "Cabin Weekend",
+    "rule": "Require a cabin, forest getaway or isolated retreat that shapes the action. Match the relevant family-comedy, group-tension or woodland-survival strand.",
+    "signals": [
+      "isolated cabin",
+      "cabin in the woods",
+      "lakeside cottage",
+      "forest retreat",
+      "remote lodge"
+    ],
+    "references": [
+      {
+        "id": "tt0095253",
+        "title": "The Great Outdoors",
+        "type": "movie",
+        "year": 1988,
+        "traits": [
+          "lakeside cabin",
+          "family vacation",
+          "wilderness resort"
+        ],
+        "note": "An extended family shares a lakeside vacation spot in Wisconsin."
+      },
+      {
+        "id": "tt8272064",
+        "title": "Knock at the Cabin",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "remote cabin",
+          "family getaway",
+          "home invasion"
+        ],
+        "note": "A family's remote cabin vacation is interrupted by armed visitors."
+      },
+      {
+        "id": "tt1259521",
+        "title": "The Cabin in the Woods",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "cabin in the woods",
+          "group of friends",
+          "isolated cabin"
+        ],
+        "note": "Friends' stay at an isolated cabin becomes a test of survival."
+      },
+      {
+        "id": "tt2179116",
+        "title": "The Kings of Summer",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "woodland hideout",
+          "building a cabin",
+          "teenage friends"
+        ],
+        "note": "Teenagers build a hidden woodland home to live independently."
+      },
+      {
+        "id": "tt0082846",
+        "title": "On Golden Pond",
+        "type": "movie",
+        "year": 1981,
+        "traits": [
+          "lakeside cottage",
+          "summer home",
+          "family reconciliation"
+        ],
+        "note": "Generations of a family reconnect at their summer lake cottage."
+      },
+      {
+        "id": "tt1465522",
+        "title": "Tucker & Dale vs. Evil",
+        "type": "movie",
+        "year": 2010,
+        "traits": [
+          "cabin in the woods",
+          "vacation home",
+          "mistaken identity"
+        ],
+        "note": "A trip to repair a woodland cabin sets two friends at odds with campers."
+      },
+      {
+        "id": "tt1742336",
+        "title": "Your Sister's Sister",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "island cabin",
+          "family tensions",
+          "isolated retreat"
+        ],
+        "note": "An island cabin unexpectedly brings a man and two sisters together."
+      },
+      {
+        "id": "tt0083907",
+        "title": "The Evil Dead",
+        "type": "movie",
+        "year": 1981,
+        "traits": [
+          "cabin in the woods",
+          "remote cabin",
+          "trapped friends"
+        ],
+        "note": "An isolated cabin leaves five travelers exposed to a supernatural threat."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0103241",
+        "title": "What About Bob?",
+        "type": "movie",
+        "year": 1991,
+        "traits": [
+          "lakeside vacation",
+          "family getaway",
+          "summer home"
+        ],
+        "note": "A patient follows a psychiatrist to his family's lakeside vacation."
+      },
+      {
+        "id": "tt7347846",
+        "title": "The Lodge",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "remote lodge",
+          "snowbound",
+          "family tensions"
+        ],
+        "note": "A winter lodge strands two children with their father's fiancée."
+      }
+    ]
+  },
+  {
+    "slug": "the-extra-hour",
+    "title": "The Extra Hour",
+    "rule": "Verify at least 150 minutes for the available feature edition and match an epic-scale story, ensemble or spectacle. Advertise a named longer cut only when the card can resolve that edition.",
+    "signals": [
+      "epic journey",
+      "historical epic",
+      "ensemble drama",
+      "family saga",
+      "epic spectacle"
+    ],
+    "references": [
+      {
+        "id": "tt0120737",
+        "title": "The Lord of the Rings: The Fellowship of the Ring",
+        "type": "movie",
+        "year": 2001,
+        "traits": [
+          "epic quest",
+          "fellowship",
+          "ensemble adventure"
+        ],
+        "note": "A company of travelers sets out across Middle-earth.",
+        "runtime_minutes": 178,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt15239678",
+        "title": "Dune: Part Two",
+        "type": "movie",
+        "year": 2024,
+        "traits": [
+          "desert uprising",
+          "political epic",
+          "dynastic conflict"
+        ],
+        "note": "A desert rebellion and a dynastic struggle unfold across Arrakis.",
+        "runtime_minutes": 166,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0120338",
+        "title": "Titanic",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "ocean liner",
+          "historical disaster",
+          "epic romance"
+        ],
+        "note": "An ocean-liner romance unfolds within a large-scale historical disaster.",
+        "runtime_minutes": 194,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt1262426",
+        "title": "Wicked",
+        "type": "movie",
+        "year": 2024,
+        "traits": [
+          "fantasy musical",
+          "unlikely friendship",
+          "political conflict"
+        ],
+        "note": "An expansive musical follows two young women in Oz.",
+        "runtime_minutes": 160,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0816692",
+        "title": "Interstellar",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "interstellar voyage",
+          "space exploration",
+          "generational separation"
+        ],
+        "note": "A space mission links a family's separation with humanity's future.",
+        "runtime_minutes": 169,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt14039582",
+        "title": "Drive My Car",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "theater rehearsal",
+          "ensemble drama",
+          "grief"
+        ],
+        "note": "A director's preparations for a multilingual production unfold alongside his grief.",
+        "runtime_minutes": 179,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0068646",
+        "title": "The Godfather",
+        "type": "movie",
+        "year": 1972,
+        "traits": [
+          "crime dynasty",
+          "family saga",
+          "succession"
+        ],
+        "note": "A multigenerational New York crime family faces a succession struggle.",
+        "runtime_minutes": 175,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt1630029",
+        "title": "Avatar: The Way of Water",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "family saga",
+          "ocean world",
+          "epic spectacle"
+        ],
+        "note": "A displaced family learns the life of Pandora's ocean communities.",
+        "runtime_minutes": 192,
+        "edition": "standard theatrical"
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt15398776",
+        "title": "Oppenheimer",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "historical epic",
+          "manhattan project",
+          "scientific biography"
+        ],
+        "note": "An ensemble biography moves between wartime science and later hearings.",
+        "runtime_minutes": 180,
+        "edition": "standard theatrical"
+      },
+      {
+        "id": "tt0104797",
+        "title": "Malcolm X",
+        "type": "movie",
+        "year": 1992,
+        "traits": [
+          "civil rights",
+          "political biography",
+          "historical epic"
+        ],
+        "note": "A historical biography traces Malcolm X's political and spiritual development.",
+        "runtime_minutes": 202,
+        "edition": "standard theatrical"
+      }
+    ]
+  },
+  {
+    "slug": "dinner-is-served",
+    "title": "Dinner Is Served",
+    "rule": "Thanksgiving changes the journey, reunion or gathering. A Thanksgiving horror film can qualify through its holiday premise. A restaurant, a turkey or a meal alone is insufficient.",
+    "signals": [
+      "thanksgiving",
+      "thanksgivings",
+      "thanksgiving dinner",
+      "thanksgiving weekend",
+      "thanksgiving travel"
+    ],
+    "references": [
+      {
+        "id": "tt0093748",
+        "title": "Planes, Trains and Automobiles",
+        "type": "movie",
+        "year": 1987,
+        "traits": [
+          "thanksgiving travel",
+          "journey home",
+          "travel home",
+          "unlikely companions"
+        ],
+        "note": "Two stranded travelers try to get home for Thanksgiving."
+      },
+      {
+        "id": "tt0311648",
+        "title": "Pieces of April",
+        "type": "movie",
+        "year": 2003,
+        "traits": [
+          "thanksgiving dinner",
+          "family reunion",
+          "family estrangement",
+          "estranged family"
+        ],
+        "note": "A daughter tries to cook Thanksgiving dinner for her estranged family."
+      },
+      {
+        "id": "tt0113321",
+        "title": "Home for the Holidays",
+        "type": "movie",
+        "year": 1995,
+        "traits": [
+          "thanksgiving reunion",
+          "family homecoming",
+          "siblings return to their parents",
+          "overbearing relatives",
+          "thanksgiving dinner"
+        ],
+        "note": "An adult daughter returns for a fraught family Thanksgiving."
+      },
+      {
+        "id": "tt1621039",
+        "title": "Free Birds",
+        "type": "movie",
+        "year": 2013,
+        "traits": [
+          "first thanksgiving",
+          "original thanksgiving",
+          "thanksgiving turkey",
+          "holiday tradition"
+        ],
+        "note": "Two turkeys travel back to alter the first Thanksgiving menu."
+      },
+      {
+        "id": "tt1448754",
+        "title": "Thanksgiving",
+        "type": "movie",
+        "year": 2023,
+        "traits": [
+          "thanksgiving parade",
+          "thanksgiving massacre",
+          "thanksgiving-inspired killer",
+          "holiday slasher"
+        ],
+        "note": "A killer targets a town during its Thanksgiving festivities."
+      },
+      {
+        "id": "tt0197096",
+        "title": "What's Cooking?",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "thanksgiving dinner",
+          "family traditions",
+          "families gather",
+          "family gathering"
+        ],
+        "note": "Four Los Angeles households prepare different Thanksgiving dinners."
+      },
+      {
+        "id": "tt0119349",
+        "title": "The Ice Storm",
+        "type": "movie",
+        "year": 1997,
+        "traits": [
+          "thanksgiving weekend",
+          "suburban families",
+          "family gathering"
+        ],
+        "note": "Two neighboring families unravel over Thanksgiving weekend."
+      },
+      {
+        "id": "tt10023286",
+        "title": "The Humans",
+        "type": "movie",
+        "year": 2021,
+        "traits": [
+          "thanksgiving dinner",
+          "family tensions",
+          "family gathers",
+          "family gather to spend",
+          "family gathering"
+        ],
+        "note": "A family spends Thanksgiving in a daughter's new apartment."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt4266638",
+        "title": "Krisha",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "thanksgiving reunion",
+          "estranged family",
+          "thanksgiving dinner"
+        ],
+        "note": "A woman returns to her family for Thanksgiving after a long absence."
+      },
+      {
+        "id": "tt0108186",
+        "title": "Son in Law",
+        "type": "movie",
+        "year": 1993,
+        "traits": [
+          "thanksgiving break",
+          "family farm",
+          "meet the parents"
+        ],
+        "note": "A college student brings an unexpected guest to the family farm for Thanksgiving."
+      }
+    ]
+  },
+  {
+    "slug": "christmas-favorites",
+    "title": "Christmas Favorites",
+    "rule": "Christmas or Advent must drive the story or be a documented household tradition. Balance family reunions, holiday romance, Christmas fantasy and comedy. A December premiere without a holiday premise stays out.",
+    "signals": [
+      "christmas",
+      "christmas eve",
+      "advent",
+      "santa claus",
+      "yuletide"
+    ],
+    "references": [
+      {
+        "id": "tt0099785",
+        "title": "Home Alone",
+        "type": "movie",
+        "year": 1990,
+        "traits": [
+          "family reunion",
+          "family christmas",
+          "child left home alone"
+        ],
+        "note": "A child separated from his family at Christmas longs for their return."
+      },
+      {
+        "id": "tt4729430",
+        "title": "Klaus",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "letters to santa",
+          "christmas gifts",
+          "toy maker"
+        ],
+        "note": "A postman and a toymaker bring a gift-giving tradition to a remote town."
+      },
+      {
+        "id": "tt0319343",
+        "title": "Elf",
+        "type": "movie",
+        "year": 2003,
+        "traits": [
+          "father and son",
+          "christmas spirit",
+          "north pole"
+        ],
+        "note": "An elf-raised man brings Christmas enthusiasm to his birth family's home."
+      },
+      {
+        "id": "tt0104940",
+        "title": "The Muppet Christmas Carol",
+        "type": "movie",
+        "year": 1992,
+        "traits": [
+          "christmas ghosts",
+          "christmas eve",
+          "redemption"
+        ],
+        "note": "Christmas Eve visitors invite Scrooge to reconsider his life."
+      },
+      {
+        "id": "tt0457939",
+        "title": "The Holiday",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "holiday romance",
+          "house swap",
+          "christmas vacation"
+        ],
+        "note": "Two women swap homes for Christmas and find unexpected relationships."
+      },
+      {
+        "id": "tt1430607",
+        "title": "Arthur Christmas",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "christmas delivery",
+          "santa's family",
+          "forgotten present"
+        ],
+        "note": "Santa's son sets out to deliver a forgotten present before Christmas morning."
+      },
+      {
+        "id": "tt0111070",
+        "title": "The Santa Clause",
+        "type": "movie",
+        "year": 1994,
+        "traits": [
+          "becoming santa",
+          "father and son",
+          "christmas eve"
+        ],
+        "note": "An ordinary father takes on Santa's duties after a Christmas Eve mishap."
+      },
+      {
+        "id": "tt0211153",
+        "title": "The Julekalender",
+        "type": "series",
+        "year": 1991,
+        "traits": [
+          "christmas elves",
+          "advent calendar",
+          "danish christmas"
+        ],
+        "note": "The Danish 1991 Advent series follows three elves on a Christmas mission."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt2990140",
+        "title": "The Christmas Chronicles",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "saving christmas",
+          "santa's sleigh",
+          "siblings"
+        ],
+        "note": "Two siblings join Santa to rescue his Christmas Eve deliveries."
+      },
+      {
+        "id": "tt0338348",
+        "title": "The Polar Express",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "north pole",
+          "christmas eve",
+          "belief in santa"
+        ],
+        "note": "Children board a train to the North Pole on Christmas Eve."
+      }
+    ]
+  },
+  {
+    "slug": "until-sunrise",
+    "title": "Until Sunrise",
+    "rule": "The principal action spans one night. Use the overnight pursuit, party, crime or first-date structure of a reference. Night photography alone is insufficient.",
+    "signals": [
+      "one night",
+      "over the course of a night",
+      "single night",
+      "before dawn",
+      "overnight"
+    ],
+    "references": [
+      {
+        "id": "tt0088680",
+        "title": "After Hours",
+        "type": "movie",
+        "year": 1985,
+        "traits": [
+          "one night",
+          "late-night odyssey",
+          "stranded in the city"
+        ],
+        "note": "An office worker struggles to get home during one night in SoHo."
+      },
+      {
+        "id": "tt0369339",
+        "title": "Collateral",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "overnight taxi shift",
+          "one night",
+          "contract killer"
+        ],
+        "note": "A cab driver's night shift turns into a forced tour with a hitman."
+      },
+      {
+        "id": "tt2704998",
+        "title": "Game Night",
+        "type": "movie",
+        "year": 2018,
+        "traits": [
+          "game night",
+          "one night",
+          "party game"
+        ],
+        "note": "One evening's murder-mystery game takes a group of friends out into the city."
+      },
+      {
+        "id": "tt0080120",
+        "title": "The Warriors",
+        "type": "movie",
+        "year": 1979,
+        "traits": [
+          "overnight pursuit",
+          "one night",
+          "journey home"
+        ],
+        "note": "A gang crosses rival territories to get home before dawn."
+      },
+      {
+        "id": "tt0092513",
+        "title": "Adventures in Babysitting",
+        "type": "movie",
+        "year": 1987,
+        "traits": [
+          "one night",
+          "babysitting",
+          "city adventure"
+        ],
+        "note": "A babysitter's evening becomes a trip across Chicago with her charges."
+      },
+      {
+        "id": "tt4226388",
+        "title": "Victoria",
+        "type": "movie",
+        "year": 2015,
+        "traits": [
+          "one night",
+          "real time",
+          "nightclub encounter"
+        ],
+        "note": "A chance nightclub encounter unfolds continuously through a Berlin night."
+      },
+      {
+        "id": "tt7798634",
+        "title": "Ready or Not",
+        "type": "movie",
+        "year": 2019,
+        "traits": [
+          "wedding night",
+          "deadly game",
+          "before dawn"
+        ],
+        "note": "A bride must endure a dangerous family game on her wedding night."
+      },
+      {
+        "id": "tt8110652",
+        "title": "Bodies Bodies Bodies",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "house party",
+          "one night",
+          "overnight storm"
+        ],
+        "note": "A late-night party game traps friends in a house during a storm."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt4846232",
+        "title": "Good Time",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "one night",
+          "overnight pursuit",
+          "rescue attempt"
+        ],
+        "note": "A man spends a night trying to free his brother after a robbery."
+      },
+      {
+        "id": "tt1279935",
+        "title": "Date Night",
+        "type": "movie",
+        "year": 2010,
+        "traits": [
+          "date night",
+          "mistaken identity",
+          "one night"
+        ],
+        "note": "A couple's evening out becomes an overnight chase through New York."
+      }
+    ]
+  },
+  {
+    "slug": "one-last-movie-before-new-year",
+    "title": "One Last Movie Before New Year",
+    "rule": "New Year's Eve, midnight or the turn of the year changes the story or provides its decisive scene. Alternate celebration, romance and countdown thrillers. A general late-December release is too broad.",
+    "signals": [
+      "new year's eve",
+      "new year celebration",
+      "millennium eve",
+      "countdown to midnight"
+    ],
+    "references": [
+      {
+        "id": "tt0098635",
+        "title": "When Harry Met Sally...",
+        "type": "movie",
+        "year": 1989,
+        "traits": [
+          "new year's eve",
+          "new year party",
+          "midnight reunion"
+        ],
+        "note": "A New Year's Eve party frames a decisive reunion."
+      },
+      {
+        "id": "tt0053604",
+        "title": "The Apartment",
+        "type": "movie",
+        "year": 1960,
+        "traits": [
+          "new year's eve",
+          "new year party",
+          "midnight decision"
+        ],
+        "note": "A New Year's Eve celebration prompts a choice about companionship."
+      },
+      {
+        "id": "tt0097428",
+        "title": "Ghostbusters II",
+        "type": "movie",
+        "year": 1989,
+        "traits": [
+          "new year's eve",
+          "new year singalong",
+          "midnight"
+        ],
+        "note": "New Yorkers' singing on New Year's Eve becomes part of the Ghostbusters' plan."
+      },
+      {
+        "id": "tt0114558",
+        "title": "Strange Days",
+        "type": "movie",
+        "year": 1995,
+        "traits": [
+          "millennium eve",
+          "recorded memories",
+          "dystopian los angeles"
+        ],
+        "note": "A Los Angeles thriller unfolds toward the midnight turn of the millennium."
+      },
+      {
+        "id": "tt0408985",
+        "title": "Last Holiday",
+        "type": "movie",
+        "year": 2006,
+        "traits": [
+          "new year's eve",
+          "holiday resort",
+          "new year celebration"
+        ],
+        "note": "A woman's dream resort holiday culminates in a New Year's Eve celebration."
+      },
+      {
+        "id": "tt1598822",
+        "title": "New Year's Eve",
+        "type": "movie",
+        "year": 2011,
+        "traits": [
+          "new year's eve",
+          "times square",
+          "midnight countdown"
+        ],
+        "note": "Interwoven New York stories converge on the Times Square countdown."
+      },
+      {
+        "id": "tt0069113",
+        "title": "The Poseidon Adventure",
+        "type": "movie",
+        "year": 1972,
+        "traits": [
+          "new year's eve",
+          "shipboard celebration",
+          "midnight disaster"
+        ],
+        "note": "A New Year's Eve midnight celebration at sea is interrupted by disaster."
+      },
+      {
+        "id": "tt27218960",
+        "title": "Y2K",
+        "type": "movie",
+        "year": 2024,
+        "traits": [
+          "millennium eve",
+          "y2k",
+          "midnight countdown"
+        ],
+        "note": "A 1999 New Year's Eve party meets a technological crisis at midnight."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt0110074",
+        "title": "The Hudsucker Proxy",
+        "type": "movie",
+        "year": 1994,
+        "traits": [
+          "new year's eve",
+          "midnight",
+          "new year decision"
+        ],
+        "note": "A corporate fable turns on a man's New Year's Eve predicament."
+      },
+      {
+        "id": "tt0137338",
+        "title": "200 Cigarettes",
+        "type": "movie",
+        "year": 1999,
+        "traits": [
+          "new year's eve",
+          "party",
+          "new york city"
+        ],
+        "note": "Partygoers cross New York seeking companionship on New Year's Eve."
+      }
+    ]
+  },
+  {
+    "slug": "unlucky-friday",
+    "title": "Unlucky Friday",
+    "rule": "Require a Friday-the-13th story, curse, fatal coincidence or exceptionally bad luck that drives the plot. Vary slashers, supernatural rules and dark comedy. A scary poster alone is too weak.",
+    "signals": [
+      "friday the 13th",
+      "supernatural curse",
+      "fatal coincidence",
+      "deadly premonition",
+      "bad luck"
+    ],
+    "references": [
+      {
+        "id": "tt0080761",
+        "title": "Friday the 13th",
+        "type": "movie",
+        "year": 1980,
+        "traits": [
+          "friday the 13th",
+          "cursed camp",
+          "camp counselors"
+        ],
+        "note": "Counselors prepare to reopen Camp Crystal Lake on Friday the 13th."
+      },
+      {
+        "id": "tt0195714",
+        "title": "Final Destination",
+        "type": "movie",
+        "year": 2000,
+        "traits": [
+          "fatal coincidence",
+          "deadly premonition",
+          "cheating death"
+        ],
+        "note": "Survivors of a predicted crash face a succession of deadly accidents."
+      },
+      {
+        "id": "tt1465522",
+        "title": "Tucker & Dale vs. Evil",
+        "type": "movie",
+        "year": 2010,
+        "traits": [
+          "fatal accidents",
+          "bad luck",
+          "misunderstandings"
+        ],
+        "note": "A string of fatal misunderstandings follows two friends on a cabin trip."
+      },
+      {
+        "id": "tt1127180",
+        "title": "Drag Me to Hell",
+        "type": "movie",
+        "year": 2009,
+        "traits": [
+          "supernatural curse",
+          "cursed object",
+          "deadline"
+        ],
+        "note": "A loan officer tries to escape a curse placed on her."
+      },
+      {
+        "id": "tt0298130",
+        "title": "The Ring",
+        "type": "movie",
+        "year": 2002,
+        "traits": [
+          "cursed videotape",
+          "seven days",
+          "supernatural curse"
+        ],
+        "note": "Viewing a videotape starts a deadly seven-day countdown."
+      },
+      {
+        "id": "tt3235888",
+        "title": "It Follows",
+        "type": "movie",
+        "year": 2014,
+        "traits": [
+          "transmitted curse",
+          "relentless pursuer",
+          "supernatural curse"
+        ],
+        "note": "A pursuing entity follows a curse passed from one person to another."
+      },
+      {
+        "id": "tt5308322",
+        "title": "Happy Death Day",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "repeated death",
+          "birthday",
+          "murder loop"
+        ],
+        "note": "A student's repeated fatal birthday makes survival a matter of breaking the pattern."
+      },
+      {
+        "id": "tt15474916",
+        "title": "Smile",
+        "type": "movie",
+        "year": 2022,
+        "traits": [
+          "transmitted curse",
+          "supernatural curse",
+          "chain of deaths"
+        ],
+        "note": "A psychiatrist investigates a lethal pattern after witnessing a death."
+      }
+    ],
+    "reserves": [
+      {
+        "id": "tt5322012",
+        "title": "Wish Upon",
+        "type": "movie",
+        "year": 2017,
+        "traits": [
+          "cursed object",
+          "deadly wishes",
+          "bad luck"
+        ],
+        "note": "A wish-granting box makes good fortune dangerous for its owner."
+      },
+      {
+        "id": "tt0391198",
+        "title": "The Grudge",
+        "type": "movie",
+        "year": 2004,
+        "traits": [
+          "cursed house",
+          "supernatural curse",
+          "vengeful spirit"
+        ],
+        "note": "A house transmits the consequences of a violent curse to its visitors."
+      }
+    ]
+  }
+]

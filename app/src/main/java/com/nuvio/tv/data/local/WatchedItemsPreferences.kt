@@ -2,9 +2,11 @@ package com.nuvio.tv.data.local
 
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.profile.ProfileManager
 import com.google.gson.Gson
 import com.nuvio.tv.data.mediaserver.ServerItemRef
@@ -31,6 +33,7 @@ class WatchedItemsPreferences @Inject constructor(
     companion object {
         private const val FEATURE = "watched_items_preferences"
         private const val TAG = "WatchedItemsPrefs"
+        private val householdMovieId = Regex("tt[0-9]{1,12}|tmdb:[0-9]{1,12}")
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -38,6 +41,9 @@ class WatchedItemsPreferences @Inject constructor(
 
     private val gson = Gson()
     private val watchedItemsKey = stringSetPreferencesKey("watched_items")
+    // A local unwatched action is explicit. Falling out of the recent-history window is not.
+    private val seasonalUndosKey = stringSetPreferencesKey("household_pending_movie_undos")
+    private val seasonalEnabledKey = booleanPreferencesKey("household_seasonal_feedback_enabled")
     private val lastSuccessfulPushMsKey = longPreferencesKey("last_successful_watched_push_ms")
     private val deltaCursorKey = longPreferencesKey("watched_items_delta_cursor")
     private val deltaInitializedKey = booleanPreferencesKey("watched_items_delta_initialized")
@@ -115,6 +121,37 @@ class WatchedItemsPreferences @Inject constructor(
             .flowOn(Dispatchers.Default)
     }
 
+    internal fun observeHouseholdHistory(profileId: Int) = store(profileId).data
+        .map { it[watchedItemsKey].orEmpty() to it[seasonalUndosKey].orEmpty() }
+        .distinctUntilChanged()
+        .map { (raw, undos) ->
+            decodeItems(profileId, raw) to undos.mapNotNull {
+                val at = it.substringAfterLast('|').toLongOrNull() ?: return@mapNotNull null
+                it.substringBeforeLast('|') to at
+            }.toMap()
+        }
+        .flowOn(Dispatchers.Default)
+
+    internal suspend fun acceptHouseholdFeedback(profileId: Int, sentUndos: Map<String, Long>) {
+        store(profileId).edit { prefs ->
+            prefs[seasonalEnabledKey] = true
+            if (sentUndos.isNotEmpty()) {
+                val acknowledged = sentUndos.map { (id, at) -> "$id|$at" }.toSet()
+                prefs[seasonalUndosKey] = prefs[seasonalUndosKey].orEmpty() - acknowledged
+            }
+        }
+    }
+
+    private fun recordMovieUndo(prefs: MutablePreferences, id: String, at: Long) {
+        // Preserve an offline undo even on the first start after a household TV upgrades.
+        if (BuildConfig.MKBTV_DISCOVERY_ORIGIN.isBlank() && prefs[seasonalEnabledKey] != true) return
+        if (!householdMovieId.matches(id)) return
+        val pending = prefs[seasonalUndosKey].orEmpty()
+        val previous = pending.firstOrNull { it.substringBeforeLast('|') == id }
+        if (previous != null && (previous.substringAfterLast('|').toLongOrNull() ?: 0L) >= at) return
+        prefs[seasonalUndosKey] = pending.filterNot { it == previous }.toSet() + "$id|$at"
+    }
+
     fun isWatched(contentId: String, season: Int? = null, episode: Int? = null): Flow<Boolean> {
         return allItems.map { items ->
             items.any { item ->
@@ -185,6 +222,9 @@ class WatchedItemsPreferences @Inject constructor(
                 extractWatchedItemKey(json) == removeKey
             }
             preferences[watchedItemsKey] = filtered.toSet()
+            if (season == null && episode == null) {
+                recordMovieUndo(preferences, contentId, System.currentTimeMillis())
+            }
         }
     }
 
@@ -248,7 +288,12 @@ class WatchedItemsPreferences @Inject constructor(
             deletes.forEach { (contentId, season, episode) ->
                 val mutationKey = WatchedMutationKey(contentId, season, episode)
                 if (mutationKey !in pendingUpsertKeys) {
-                    itemsByKey.remove(Triple(contentId, season, episode))
+                    val removed = itemsByKey.remove(Triple(contentId, season, episode))
+                    if (removed?.contentType == "movie" && season == null && episode == null) {
+                        // The remote delete has no mutation time. Defeat exactly the removed
+                        // watch without overriding a later watch reported by another device.
+                        recordMovieUndo(preferences, contentId, removed.watchedAt + 1L)
+                    }
                 }
             }
             upserts.forEach { item ->
@@ -314,6 +359,8 @@ class WatchedItemsPreferences @Inject constructor(
     suspend fun clearAll(profileId: Int = profileManager.activeProfileId.value) {
         store(profileId).edit { preferences ->
             preferences.remove(watchedItemsKey)
+            preferences.remove(seasonalUndosKey)
+            preferences.remove(seasonalEnabledKey)
             preferences.remove(deltaCursorKey)
             preferences.remove(deltaInitializedKey)
         }

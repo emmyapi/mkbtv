@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.activity.compose.BackHandler
@@ -220,11 +221,6 @@ fun GridHomeContent(
         }
     }
 
-    // Build index-to-section mapping for sticky header
-    val sectionMapping = remember(gridItems, continueWatchingOffset) {
-        buildSectionMapping(gridItems, continueWatchingOffset)
-    }
-
     // Pre-compute whether hero exists to avoid repeated list scan in derivedStateOf
     val hasHero = remember(gridItems) {
         gridItems.firstOrNull() is GridItem.Hero
@@ -409,7 +405,9 @@ fun GridHomeContent(
                         }
                         i++
                     }
-                    if (seeAllItem != null) {
+                    if (item is GridItem.SectionDivider && isSeasonalCatalog(item.addonId, item.catalogId)) {
+                        result.addAll(sectionContent)
+                    } else if (seeAllItem != null) {
                         // Limit content and ensure SeeAll isn't alone on last row
                         val capped = sectionContent.take(maxItems - 1)
                         val totalWithSeeAll = capped.size + 1
@@ -431,6 +429,20 @@ fun GridHomeContent(
                 }
             }
             result
+        }
+
+        val split = remember(trimmedPostItems) {
+            val first = trimmedPostItems.firstOrNull()?.first as? GridItem.SectionDivider
+            if (isSeasonalCatalog(first?.addonId, first?.catalogId)) {
+                trimmedPostItems.indexOfFirst { (item, _) ->
+                    item !== first && (item is GridItem.SectionDivider || item is GridItem.CollectionHeader)
+                }.let { if (it < 0) trimmedPostItems.size else it }
+            } else 0
+        }
+        val showUpcoming = uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()
+        val sectionMapping = remember(trimmedPostItems, preItems.size, continueWatchingOffset, split, showUpcoming) {
+            buildSectionMapping(trimmedPostItems.map { it.first }, preItems.size + continueWatchingOffset,
+                split.takeIf { showUpcoming })
         }
 
         LazyVerticalGrid(
@@ -502,6 +514,7 @@ fun GridHomeContent(
                                 onItemFocus = {
                                     lastFocusedGridItemKey.value = "hero"
                                     activeCwRowKey.value = null
+                                    onFocusedRowKeyChanged(null)
                                 },
                                 onActiveItemChanged = { item ->
                                     val idx = gridItem.items.indexOfFirst { it.id == item.id }
@@ -548,7 +561,11 @@ fun GridHomeContent(
                         focusRequesters = cwFocusRequesters,
                         rowFocusRequester = cwRowFocusRequester,
                         listState = cwListState,
-                        onItemFocused = { lastFocusedCwIndex.intValue = it; activeCwRowKey.value = "continue_watching" },
+                        onItemFocused = {
+                            lastFocusedCwIndex.intValue = it
+                            activeCwRowKey.value = "continue_watching"
+                            onFocusedRowKeyChanged(null)
+                        },
                         onItemClick = onContinueWatchingClick,
                         onStartFromBeginning = onContinueWatchingStartFromBeginning,
                         showManualPlayOption = showContinueWatchingManualPlayOption,
@@ -593,8 +610,8 @@ fun GridHomeContent(
                 }
             }
 
-            // Emit Upcoming section if SPLIT_UPCOMING mode has upcoming items
-            if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) {
+            fun upcomingSection() {
+                if (!uiState.continueWatchingEnabled || uiState.upcomingItems.isEmpty()) return
                 item(
                     key = "upcoming_section",
                     span = { GridItemSpan(maxLineSpan) },
@@ -624,7 +641,11 @@ fun GridHomeContent(
                         focusRequesters = upcomingFocusRequesters,
                         rowFocusRequester = upcomingRowFocusRequester,
                         listState = upcomingListState,
-                        onItemFocused = { lastFocusedUpcomingIndex.intValue = it; activeCwRowKey.value = "upcoming_section" },
+                        onItemFocused = {
+                            lastFocusedUpcomingIndex.intValue = it
+                            activeCwRowKey.value = "upcoming_section"
+                            onFocusedRowKeyChanged(null)
+                        },
                         onItemClick = onContinueWatchingClick,
                         onStartFromBeginning = onContinueWatchingStartFromBeginning,
                         showManualPlayOption = showContinueWatchingManualPlayOption,
@@ -670,9 +691,9 @@ fun GridHomeContent(
             }
 
             // Emit post-section items (SectionDividers, Content, SeeAll, Collections)
-            if (trimmedPostItems.isNotEmpty()) {
+            fun catalogItems(start: Int, end: Int) {
                 items(
-                    items = trimmedPostItems,
+                    items = trimmedPostItems.subList(start, end),
                     key = { it.second },
                     span = { pair ->
                         val spanCount = when (pair.first) {
@@ -705,6 +726,7 @@ fun GridHomeContent(
                                 onItemFocus = {
                                     lastFocusedGridItemKey.value = "hero"
                                     activeCwRowKey.value = null
+                                    onFocusedRowKeyChanged(null)
                                 },
                                 onActiveItemChanged = { item ->
                                     val idx = gridItem.items.indexOfFirst { it.id == item.id }
@@ -732,13 +754,14 @@ fun GridHomeContent(
                             "series" -> strTypeSeries
                             else -> gridItem.type.replaceFirstChar { it.uppercase() }
                         }
-                        val displayName = if (uiState.catalogTypeSuffixEnabled && typeLabel.isNotBlank()) {
+                        val seasonal = isSeasonalCatalog(gridItem.addonId, gridItem.catalogId)
+                        val displayName = if (!seasonal && uiState.catalogTypeSuffixEnabled && typeLabel.isNotBlank()) {
                             "${gridItem.catalogName.replaceFirstChar { it.uppercase() }} - $typeLabel"
                         } else {
                             gridItem.catalogName.replaceFirstChar { it.uppercase() }
                         }
                         SectionDivider(
-                            catalogName = displayName
+                            catalogName = displayName, seasonal = seasonal
                         )
                     }
 
@@ -769,7 +792,7 @@ fun GridHomeContent(
                                         catalogRowStableKey(
                                             gridItem.addonId,
                                             gridItem.addonBaseUrl,
-                                            gridItem.item.apiType,
+                                            if (isSeasonalCatalog(gridItem.addonId, gridItem.catalogId)) "mixed" else gridItem.item.apiType,
                                             gridItem.catalogId
                                         )
                                     )
@@ -812,6 +835,7 @@ fun GridHomeContent(
                                 {
                                     lastFocusedGridItemKey.value = itemKey
                                     activeCwRowKey.value = null
+                                    onFocusedRowKeyChanged(null)
                                 }
                             },
                             label = catalogSeeAllLabel,
@@ -836,7 +860,13 @@ fun GridHomeContent(
                             focusGlowEnabled = gridItem.focusGlowEnabled,
                             posterCardStyle = posterCardStyle,
                             focusRequester = focusRequesters.getOrPut(itemKey) { FocusRequester() },
-                            onFocused = remember(itemKey) { { lastFocusedGridItemKey.value = itemKey; activeCwRowKey.value = null } },
+                            onFocused = remember(itemKey) {
+                                {
+                                    lastFocusedGridItemKey.value = itemKey
+                                    activeCwRowKey.value = null
+                                    onFocusedRowKeyChanged(null)
+                                }
+                            },
                             onClick = remember(gridItem.collectionId, gridItem.folder.id) {
                                 {
                                     onNavigateToFolderDetail(gridItem.collectionId, gridItem.folder.id)
@@ -848,8 +878,10 @@ fun GridHomeContent(
             }
             }
 
+            catalogItems(0, split)
+            upcomingSection()
+            catalogItems(split, trimmedPostItems.size)
         } // end LazyVerticalGrid
-        } // end BoxWithConstraints
 
         // Sticky header overlay
         GridStickyHeader(
@@ -857,6 +889,7 @@ fun GridHomeContent(
             sectionMapping = sectionMapping,
             isScrolledPastHeroState = isScrolledPastHeroState
         )
+        } // end BoxWithConstraints
     }
 }
 
@@ -886,6 +919,7 @@ private fun GridStickyHeader(
 @Composable
 private fun SectionDivider(
     catalogName: String,
+    seasonal: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -898,7 +932,7 @@ private fun SectionDivider(
             style = MaterialTheme.typography.headlineMedium.copy(
                 textDirection = catalogName.contentTextDirection()
             ),
-            color = NuvioTheme.colors.TextPrimary
+            color = if (seasonal) NuvioTheme.colors.FocusRing else NuvioTheme.colors.TextPrimary
         )
     }
 }
@@ -1177,11 +1211,12 @@ private class SectionMapping(
     }
 }
 
-private fun buildSectionMapping(gridItems: List<GridItem>, indexOffset: Int = 0): SectionMapping {
+private fun buildSectionMapping(gridItems: List<GridItem>, indexOffset: Int, upcomingIndex: Int?): SectionMapping {
     val mapping = mutableMapOf<Int, SectionInfo>()
     gridItems.forEachIndexed { index, item ->
         if (item is GridItem.SectionDivider) {
-            mapping[index + indexOffset] = SectionInfo(
+            val upcomingOffset = if (upcomingIndex != null && index >= upcomingIndex) 1 else 0
+            mapping[index + indexOffset + upcomingOffset] = SectionInfo(
                 catalogName = item.catalogName,
                 catalogId = item.catalogId,
                 addonId = item.addonId,

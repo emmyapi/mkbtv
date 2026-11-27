@@ -9,6 +9,8 @@ import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.mediaserver.ServerCatalog
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.catalogsForHomeSettings
+import com.nuvio.tv.domain.model.seasonalHomeOrder
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -294,7 +296,7 @@ class CatalogOrderViewModel @Inject constructor(
             effectiveOrder = savedValid + missing
         }
 
-        return effectiveOrder.mapIndexedNotNull { index, key ->
+        return seasonalHomeOrder(effectiveOrder, if (followAddonsOrder) emptyList() else savedOrderKeys).mapIndexedNotNull { index, key ->
             val entry = availableMap[key] ?: return@mapIndexedNotNull null
             val displayName = customTitles[key]?.takeIf { it.isNotBlank() } ?: entry.catalogName
             val isCollection = key.startsWith("collection_")
@@ -401,7 +403,7 @@ class CatalogOrderViewModel @Inject constructor(
         val seenKeys = mutableSetOf<String>()
 
         addons.forEach { addon ->
-            addon.catalogs
+            addon.catalogsForHomeSettings()
                 .filterNot { it.isSearchOnlyCatalog() }
                 .forEach { catalog ->
                     val key = catalogKey(

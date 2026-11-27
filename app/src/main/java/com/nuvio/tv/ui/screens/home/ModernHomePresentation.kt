@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.isSeasonalCatalog
 import android.content.Context
 import androidx.compose.runtime.Immutable
 import com.nuvio.tv.LocaleCache
@@ -42,7 +43,7 @@ internal fun buildModernHomePresentation(
     val strTypeMovie = localizedContext.getString(R.string.type_movie)
     val strTypeSeries = localizedContext.getString(R.string.type_series)
 
-    val rows = buildList {
+    val rows = buildList<HeroCarouselRow> {
         val activeCatalogKeys = LinkedHashSet<String>()
         val activeCollectionKeys = LinkedHashSet<String>()
         val catalogRowLimit = maxCatalogRows?.coerceAtLeast(0)
@@ -323,6 +324,11 @@ internal fun buildModernHomePresentation(
             }
         }
 
+        val upcoming = indexOfFirst { it.key == MODERN_UPCOMING_ROW_KEY }
+        val firstCatalog = getOrNull(upcoming + 1)
+        if (upcoming >= 0 && firstCatalog != null && isSeasonalCatalog(firstCatalog.addonId, firstCatalog.catalogId)) {
+            add(upcoming + 1, removeAt(upcoming))
+        }
         cache.catalogRows.keys.retainAll(activeCatalogKeys)
         cache.catalogItemCache.keys.retainAll(activeCatalogKeys)
         cache.collectionRows.keys.retainAll(activeCollectionKeys)

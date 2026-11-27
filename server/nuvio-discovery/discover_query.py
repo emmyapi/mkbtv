@@ -14,7 +14,7 @@ import time
 import unicodedata
 
 
-DATA = Path(os.environ.get('MKBTV_STATE_DIR', Path.home() / '.local/share/mkbtv')) / 'catalog'
+DATA = Path(os.environ.get('MKBTV_CATALOG_DIR', Path(os.environ.get('MKBTV_STATE_DIR', Path.home() / '.local/share/mkbtv')) / 'catalog'))
 PLATFORMS = {"disney-plus", "netflix", "hbo", "prime-video", "hulu"}
 CHARTS = {"popular", "trending", "airing-today", "new-and-returning"}
 SORTS = {"catalog", "popular", "trending", "top_rated", "newest", "oldest", "title", "title_desc"}

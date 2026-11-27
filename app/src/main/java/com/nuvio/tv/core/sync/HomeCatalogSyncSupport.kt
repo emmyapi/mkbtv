@@ -1,6 +1,8 @@
 package com.nuvio.tv.core.sync
 
 import com.nuvio.tv.data.mediaserver.ServerCatalog
+import com.nuvio.tv.domain.model.catalogsForHomeSettings
+import com.nuvio.tv.domain.model.seasonalHomeOrder
 import com.nuvio.tv.domain.model.catalogTypeKey
 import com.nuvio.tv.domain.model.catalogRowLegacyKey
 import com.nuvio.tv.domain.model.Addon
@@ -93,7 +95,7 @@ internal fun buildHomeCatalogSyncPayload(
         catalogKeys.filterNot { it in savedSet } +
         collectionKeys.filterNot { it in savedSet }
 
-    val items = mergedOrder.mapIndexedNotNull { index, key ->
+    val items = seasonalHomeOrder(mergedOrder, savedValid).mapIndexedNotNull { index, key ->
         val entry = entryByKey[key] ?: return@mapIndexedNotNull null
         if (entry.isCollection) {
             SyncCatalogItem(
@@ -138,7 +140,7 @@ private fun buildCatalogEntries(addons: List<Addon>): List<HomeCatalogSyncEntry>
     val seenKeys = mutableSetOf<String>()
 
     addons.enabledAddons().forEach { addon ->
-        addon.catalogs
+        addon.catalogsForHomeSettings()
             .filter { it.shouldShowOnHomeForSync() }
             .forEach { catalog ->
                 val key = homeCatalogKey(addon.id, catalog.apiType, catalog.id)

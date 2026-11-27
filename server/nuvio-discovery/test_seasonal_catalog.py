@@ -168,6 +168,25 @@ class CatalogTest(unittest.TestCase):
                 self.assertIsNone(catalog.qualify(theme, dict(meta, type='series'), facts))
                 self.assertIsNone(catalog.qualify(theme, meta, dict(facts, texts={}, keywords=[])))
 
+    def test_krisha_alternate_year_applies_only_to_the_reviewed_feature(self):
+        theme = THEMES['dinner-is-served']
+        krisha = next(seed for seed in theme['reserves'] if seed['title'] == 'Krisha')
+        movie = {'type': 'movie', 'id': krisha['id'], 'name': 'Krisha', 'releaseInfo': '2016',
+                 'released': '2016-03-18', 'runtime': '83m'}
+        with catalog.closing(catalog.database(self.root)) as db, db:
+            catalog.start_pass(db, theme, NOW.date())
+            def accepted(entry, meta):
+                self.provider.card = lambda *_: meta
+                catalog.evaluate(db, theme, entry['id'], self.provider, NOW.date(), entry)
+                return bool(db.execute('SELECT 1 FROM item WHERE theme=? AND uid=?', (theme['slug'],entry['id'])).fetchone())
+
+            self.assertTrue(accepted(krisha, movie))
+            self.assertFalse(accepted(krisha, dict(movie, releaseInfo='2014')))
+            self.assertFalse(accepted(krisha, dict(movie, id='tt777')))
+            self.assertFalse(accepted(krisha, dict(movie, type='series')))
+            other = theme['reserves'][1]
+            self.assertFalse(accepted(other, dict(movie, id=other['id'], releaseInfo=str(other['year'] + 1))))
+
     def test_broad_theme_keyword_is_bounded_and_still_needs_an_original_story_link(self):
         provider = self.provider
         accepted = provider.movie(660001, 'Two strangers meet again.')

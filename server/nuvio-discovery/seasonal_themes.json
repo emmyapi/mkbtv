@@ -3204,7 +3204,11 @@
           "estranged family",
           "thanksgiving dinner"
         ],
-        "note": "A woman returns to her family for Thanksgiving after a long absence."
+        "note": "A woman returns to her family for Thanksgiving after a long absence.",
+        "premiere_source": "https://schedule.sxsw.com/2015/events/event_FS17762",
+        "alternate_release_years": {
+          "2016": "https://a24films.com/films/krisha"
+        }
       },
       {
         "id": "tt0108186",

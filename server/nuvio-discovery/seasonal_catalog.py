@@ -293,7 +293,16 @@ def evaluate(db, theme, requested, provider, today, selected=None):
     meta = provider.card(selected['type'] if selected else 'movie', requested)
     if not meta:
         return store(db, theme, requested, today, None)
-    keys = {uid for _, uid in d.title_keys(meta)} | {requested}
+    actual_ids = {uid for _, uid in d.title_keys(meta)}
+    if selected:
+        # Some distributors date a feature from its general release. An editor
+        # can cite that year for this precise IMDb title and format only.
+        year = release_year(meta)
+        accepted_year = year == selected['year'] or str(year) in selected.get('alternate_release_years', {})
+        imdb_ids = {uid for uid in actual_ids if uid.startswith('tt')}
+        if imdb_ids != {selected['id']} or meta['type'] != selected['type'] or not accepted_year:
+            return store(db, theme, selected['id'], today, None)
+    keys = actual_ids | {requested}
     canonical = next((uid for uid in sorted(keys) if uid.startswith('tt')), meta['id'])
     meta = dict(meta, id=canonical)
     if canonical.startswith('tt'):
@@ -301,8 +310,6 @@ def evaluate(db, theme, requested, provider, today, selected=None):
     if not selected and keys.intersection(seed['id'] for seed in theme['references'] + theme['reserves']):
         return
     if selected:
-        if release_year(meta) != selected['year'] or meta['type'] != selected['type']:
-            return store(db, theme, canonical, today, None)
         if selected.get('runtime_minutes') and minutes(meta.get('runtime')) != selected['runtime_minutes']:
             return store(db, theme, canonical, today, None)
         item = {'refs': [canonical] if selected in theme['references'] else [], 'traits': selected['traits'],

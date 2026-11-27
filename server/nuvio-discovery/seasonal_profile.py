@@ -140,6 +140,10 @@ def choose(occ, theme, pool, known, progress, excluded, old_ids, today, discover
 
 
 def selection(root, config, profile, base, state, session, now):
+    # Exhausting the old regional pool did not exhaust the worldwide catalog.
+    if state.get('release_scope') != 'worldwide':
+        state.pop('closed', None)
+        state['release_scope'] = 'worldwide'
     calendar = config.get('seasonal_calendar')
     occ = current_occurrence(now, calendar)
     boundary = occ['next_boundary'] if occ else next_calendar_boundary(now, calendar)

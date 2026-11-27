@@ -6,8 +6,8 @@ import logging
 import time
 
 from discovery import atomic_json
-from seasonal_calendar import current_occurrence, next_calendar_boundary, upcoming_occurrences
-from seasonal_catalog import refresh_theme
+from seasonal_calendar import THEMES, current_occurrence, next_calendar_boundary, upcoming_occurrences
+from seasonal_catalog import refresh_theme, revision
 
 
 def calendar_config(root):
@@ -38,13 +38,15 @@ def prepare(root, all_themes=False):
         themes = list(dict.fromkeys(([active] if active else []) + [o['theme'] for o in schedule['upcoming']]))
         path = directory / 'work.json'
         work = json.loads(path.read_text()) if path.exists() else {}
-        due = [slug for slug in themes if work.get(slug, {}).get('due', 0) <= now.timestamp()]
+        revisions = {slug: revision(THEMES[slug]) for slug in themes}
+        changed = {slug for slug in themes if work.get(slug, {}).get('revision') != revisions[slug]}
+        due = [slug for slug in themes if slug in changed or work[slug]['due'] <= now.timestamp()]
         # Give the current theme its first batch immediately, then share work fairly with future themes.
-        due.sort(key=lambda slug: (slug != active or slug in work, work.get(slug, {}).get('last', 0)))
+        due.sort(key=lambda slug: (slug != active or slug not in changed, work.get(slug, {}).get('last', 0)))
         result = {}
         for slug in (due if all_themes else due[:1]):
             status = refresh_theme(root, slug, now)
-            work[slug] = {'last': time.time(), 'due': status['next_check']}
+            work[slug] = {'last': time.time(), 'due': status['next_check'], 'revision': revisions[slug]}
             atomic_json(path, work)
             result[slug] = status
         return result

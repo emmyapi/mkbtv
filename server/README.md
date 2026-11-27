@@ -87,7 +87,7 @@ To override the editorial school-break defaults, add a `seasonal_calendar` objec
 
 The object also accepts `events` by year with organizer-confirmed Oscar and Eurovision dates, and `solstices` by year with an offset-bearing instant. The [calendar and editorial guide](../docs/seasonal-home.md) lists all 27 themes and explains scheduling priorities and how movies qualify.
 
-To remove an incorrect match, add its IMDb or `tmdb:` ID to the list for that theme in the top-level `seasonal_exclusions` object. Discovery applies an exclusion on the next Home refresh. Seasonal previews show each eligible discovery's original references and the matched story trait. Danish release dates and streaming, rental or purchase offers qualify films for this catalog.
+To remove an incorrect match, add its IMDb or `tmdb:` ID to the list for that theme in the top-level `seasonal_exclusions` object. Discovery applies an exclusion on the next Home refresh. Seasonal previews show each eligible discovery's original references and the matched story trait. A public release in any country qualifies a title for consideration. The shelf uses worldwide release metadata across theatrical, digital and other releases. Playback uses the household’s configured sources, including TorBox. The Copenhagen calendar determines when a theme appears.
 
 ## Nightly refresh
 

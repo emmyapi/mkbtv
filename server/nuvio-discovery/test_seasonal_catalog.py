@@ -3,10 +3,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from seasonal_calendar import THEMES
 import seasonal_catalog as catalog
-from seasonal_provider import ProviderError, PublicProvider, availability, detail_tags, home_dates, parse_awards, regional_page
+from seasonal_provider import ProviderError, PublicProvider, detail_tags, discover_page, first_worldwide_release, parse_awards
 
 
 CHRISTMAS = 'christmas-favorites'
@@ -22,7 +23,9 @@ class FixtureProvider:
         self.rows = []
         self.failed = False
         self.secondary = {}
-        self.available = {}
+        self.theme_rows = []
+        self.upcoming_rows = []
+        self.page_size = 20
         self.page_log = []
         self.denied = set()
 
@@ -46,11 +49,15 @@ class FixtureProvider:
     def keyword_movies(self, theme, seed, page):
         return {'ids': [], 'next': None}
 
-    def releases(self, start, end, page):
-        self.page_log.append((start, end, page))
+    def releases(self, start, end, page, *, theme=None, upcoming=False):
+        rows = self.theme_rows if theme else self.rows
+        if upcoming:
+            rows = self.upcoming_rows
+        self.page_log.append((start, end, page, bool(theme), upcoming))
         if page == 2 and self.failed:
             raise ProviderError('offline')
-        return {'ids': self.rows[(page-1)*4:page*4], 'next': page + 1 if len(self.rows) > page*4 else None}
+        return {'ids': rows[(page-1)*self.page_size:page*self.page_size],
+                'next': page + 1 if len(rows) > page*self.page_size else None}
 
     def details(self, meta):
         return {'texts': {'catalog synopsis': meta.get('description', '')}, 'keywords': [], 'countries': [],
@@ -59,7 +66,7 @@ class FixtureProvider:
     def release_evidence(self, meta, today):
         if meta['id'] in self.denied:
             return None
-        return {'market': 'DK', 'source': 'Danish home release', 'date': meta['released'][:10]}
+        return {'source': 'Catalog release date', 'date': meta['released'][:10]}
 
     def subtype(self, uid):
         return 'movie'
@@ -104,6 +111,7 @@ class CatalogTest(unittest.TestCase):
     def test_interrupted_import_reuses_cards_then_releases_or_withdraws_on_correction(self):
         p = self.provider
         p.rows = [p.movie(123450 + i) for i in range(6)]
+        p.page_size = 4
         p.failed = True
         first = self.run_refresh()
         self.assertFalse(first['complete'])
@@ -118,10 +126,111 @@ class CatalogTest(unittest.TestCase):
         next_day = self.run_refresh(NOW + timedelta(days=1))
         self.assertTrue(next_day['complete'])
         self.assertEqual(set(p.rows[2:]), {i['meta']['id'] for i in next_day['dynamic']})
-        self.assertTrue(any(s == '2027-12-05' and e == '2027-12-13' for s,e,n in p.page_log))
+        self.assertTrue(any(s == '2027-12-05' and e == '2027-12-13' for s,e,n,targeted,upcoming in p.page_log))
         self.run_refresh(NOW + timedelta(days=7))
         self.assertTrue(any(date.fromisoformat(e) - date.fromisoformat(s) == timedelta(days=548)
-                            and e == '2027-12-19' for s,e,n in p.page_log))
+                            and e == '2027-12-19' for s,e,n,targeted,upcoming in p.page_log))
+
+    def test_nightly_sparse_imdb_card_uses_verified_tmdb_alias_and_current_evidence(self):
+        p = self.provider
+        uid = p.movie(3496790)
+        alias = 'tmdb:526034'
+        complete = dict(p.records[uid], moviedb_id='526034')
+        sparse = {'id': uid, 'type': 'movie', 'name': 'Lez Bomb', 'releaseInfo': '2014'}
+        original = p.card
+        cards = {uid: sparse, alias: complete}
+        p.card = lambda kind, key: cards[key] if key in cards else original(kind, key)
+        p.rows = [alias]
+        self.assertEqual([uid], [r['meta']['id'] for r in self.run_refresh()['dynamic']])
+        p.rows = []
+        refreshed = self.run_refresh(NOW + timedelta(days=1))['dynamic']
+        self.assertEqual([uid], [r['meta']['id'] for r in refreshed])
+        self.assertEqual('526034', refreshed[0]['meta']['moviedb_id'])
+        cards[uid] = None
+        self.assertEqual([uid], [r['meta']['id'] for r in self.run_refresh(NOW + timedelta(days=2))['dynamic']])
+        cards[alias] = dict(complete, description='A different story without the seasonal premise.')
+        self.assertFalse(self.run_refresh(NOW + timedelta(days=3))['dynamic'])
+
+    def test_verified_alias_cannot_replace_a_conflicting_identity_or_known_short_runtime(self):
+        p = self.provider
+        uid = p.movie(3496790)
+        alias = 'tmdb:526034'
+        complete = dict(p.records[uid], moviedb_id='526034')
+        cards = {alias: complete, uid: dict(complete, runtime='12m')}
+        original = p.card
+        p.card = lambda kind, key: cards[key] if key in cards else original(kind, key)
+        with catalog.closing(catalog.database(self.root)) as db, db:
+            theme = THEMES[CHRISTMAS]
+            catalog.start_pass(db, theme, NOW.date())
+            def item_exists():
+                return bool(db.execute('SELECT 1 FROM item WHERE theme=? AND uid=?', (CHRISTMAS, uid)).fetchone())
+
+            for changed in (dict(complete, id='tt99', imdb_id='tt99'), dict(complete, type='series'),
+                            dict(complete, moviedb_id='14'), None):
+                cards[alias] = complete
+                catalog.evaluate(db, theme, alias, p, NOW.date())
+                self.assertTrue(item_exists())
+                cards[uid] = {'type': 'movie', 'id': uid}
+                cards[alias] = changed
+                catalog.evaluate(db, theme, uid, p, NOW.date())
+                self.assertFalse(item_exists())
+            cards[alias] = complete
+            catalog.evaluate(db, theme, alias, p, NOW.date())
+            cards[uid] = dict(complete, runtime='12m')
+            catalog.evaluate(db, theme, uid, p, NOW.date())
+            self.assertFalse(item_exists())
+
+    def test_revision_rechecks_previously_published_and_newly_eligible_titles(self):
+        p = self.provider
+        old, new = p.movie(76210), p.movie(76211)
+        p.rows = [old, new]
+        p.denied.add(new)
+        with patch.object(catalog, 'REVISION', 3):
+            previous = self.run_refresh()
+            self.assertEqual([old], [i['meta']['id'] for i in previous['dynamic']])
+        self.assertFalse(catalog.read_pool(self.root, CHRISTMAS, NOW)['complete'])
+        p.denied = {old}
+        current = self.run_refresh()
+        self.assertTrue(current['complete'])
+        self.assertNotEqual(previous['generation'], current['generation'])
+        self.assertEqual([new], [i['meta']['id'] for i in current['dynamic']])
+
+    def test_worldwide_release_feeds_bound_the_queue_and_match_each_candidate_to_a_seed(self):
+        p = self.provider
+        p.page_size = 1
+        p.rows = [p.movie(77000+i) for i in range(5)]
+        p.theme_rows = [p.movie(78000+i) for i in range(5)]
+        p.records[p.theme_rows[0]]['description'] = 'A Christmas movie without a reference trait.'
+        pool = self.run_refresh()
+        self.assertTrue(pool['complete'])
+        for targeted in (False, True):
+            self.assertEqual([1, 2, 3], [page for _, _, page, theme, early in p.page_log
+                                         if not early and theme == targeted])
+        found = {i['meta']['id']: i for i in pool['dynamic']}
+        self.assertEqual(set(p.rows[:3] + p.theme_rows[1:3]), set(found))
+        self.assertIn(['TMDB worldwide theme release', ''], found[p.theme_rows[1]]['evidence']['retrieved'])
+
+    def test_future_primary_search_requires_a_worldwide_screening_by_today(self):
+        p = self.provider
+        p.page_size = 1
+        p.upcoming_rows = [p.movie(84000 + i) for i in range(5)]
+        premiered = p.upcoming_rows[0]
+        p.records[premiered].update(released='2028-02-01', releaseInfo='2028')
+        for uid in p.upcoming_rows[1:]:
+            p.records[uid].update(released='2028-03-01', releaseInfo='2028')
+        public = PublicProvider(self.root)
+        def request(url, *args, **kwargs):
+            day = '2027-12-12' if '/84000/' in url else '2028-03-01'
+            return {'date': day, 'type': 'Premiere', 'country': 'FR'}
+        public.request = request
+        p.release_evidence = public.release_evidence
+        pool = self.run_refresh()
+        self.assertTrue(pool['complete'])
+        self.assertEqual([premiered], [row['meta']['id'] for row in pool['dynamic']])
+        self.assertEqual('2027-12-12', pool['dynamic'][0]['release'])
+        self.assertEqual([1], [n for s,e,n,theme,early in p.page_log if early and not theme])
+        self.assertEqual([1, 2, 3], [n for s,e,n,theme,early in p.page_log if early and theme])
+        self.assertTrue(any(s == '2027-12-13' and e == '2028-12-11' for s,e,n,theme,early in p.page_log))
 
     def test_former_discovery_after_restart_does_not_become_an_original_reference(self):
         p = self.provider
@@ -220,6 +329,15 @@ class CatalogTest(unittest.TestCase):
         self.assertIn(['TMDB theme keyword', ''], rows[0]['evidence']['retrieved'])
         self.assertTrue(any(v['source'] == 'TMDB overview' for vs in rows[0]['evidence']['references'].values() for v in vs))
 
+    def test_thanksgiving_keyword_alone_does_not_make_a_christmas_film_eligible(self):
+        theme = THEMES['dinner-is-served']
+        meta = {'type': 'movie', 'id': 'tt4649416', 'name': 'Almost Christmas', 'runtime': '111m'}
+        facts = {'texts': {'TMDB overview': 'A family reunion for their first Christmas without Mom.'},
+                 'subtype': 'movie', 'keywords': ['thanksgiving', 'family reunion']}
+        self.assertIsNone(catalog.qualify(theme, meta, facts))
+        facts['texts'] = {'TMDB overview': 'A family reunion for their first Thanksgiving without Mom.'}
+        self.assertTrue(catalog.qualify(theme, meta, facts)['refs'])
+
     def test_every_original_reference_keeps_a_distinct_retrieval_trait(self):
         for theme in THEMES.values():
             for seed in theme['references']:
@@ -261,7 +379,7 @@ class CatalogTest(unittest.TestCase):
         self.assertIsNone(catalog.qualify(THEMES['the-extra-hour'],dict(meta,runtime='151m'),facts))
         self.assertIsNone(catalog.qualify(THEMES['the-one-that-got-away'],meta,facts))
 
-    def test_dated_announcements_require_movie_identity_and_regional_proof(self):
+    def test_dated_announcements_require_documentary_identity_and_year(self):
         theme = THEMES['may-the-fourth']
         meta = {'id':'tt555','type':'movie','name':'The Hero Awakens','releaseInfo':'2027','runtime':'84m',
                 'genres':['Documentary']}
@@ -272,23 +390,29 @@ class CatalogTest(unittest.TestCase):
 
 
 class ProviderTest(unittest.TestCase):
-    def test_danish_home_release_records_and_real_offers(self):
-        self.assertFalse(availability(b'<div class="ott_title">There are no offers for X.</div><script>value: "DK"</script>'))
-        self.assertTrue(availability(b'<a href="https://click.justwatch.com/a?uct_country=dk"></a>'))
-        for html in (b'Access denied', b'<a href="https://click.justwatch.com/a?uct_country=us"></a>'):
-            with self.assertRaises(ProviderError):
-                availability(html)
-        table = b'<table class="card releases"><h2 id="DK">Denmark</h2>'
-        row = b'<tr><td>04/02/2027</td><td>PG</td><td>'
-        self.assertEqual([], home_dates(table + row + b'Theatrical</td></tr></table>'))
-        self.assertEqual(['2027-04-02'], home_dates(table + row + b'Digital</td></tr></table>'))
+    def test_earliest_release_from_any_country_or_medium_in_any_table_order(self):
+        def table(country, date, medium):
+            return (f'<table class="card releases"><h2 id="{country}">Country</h2>'
+                    f'<tr><td>{date}</td><td></td><td>{medium}</td></tr></table>').encode()
 
-    def test_region_cursor_shape_and_runtime_parser(self):
+        tables = [table('DK', '05/02/2027', 'Digital'), table('DE', '01/02/2027', 'Theatrical (limited)'),
+                  table('US', '12/05/2026', 'Premiere'), table('GB', '11/15/2026', 'Trailer'),
+                  table('FR', '', 'Theatrical')]
+        expected = {'country': 'US', 'date': '2026-12-05', 'type': 'Premiere'}
+        self.assertEqual(expected, first_worldwide_release(b''.join(tables)))
+        self.assertEqual(expected, first_worldwide_release(b''.join(reversed(tables))))
+        for medium in ('Premiere', 'Theatrical (limited)', 'Theatrical', 'Digital', 'Physical', 'TV'):
+            self.assertEqual('2026-11-22', first_worldwide_release(table('PH', '11/22/2026', medium))['date'])
+        self.assertEqual('2026-11-22', first_worldwide_release(table('', '11/22/2026', 'Digital'))['date'])
+        with self.assertRaises(ProviderError):
+            first_worldwide_release(b'Access denied')
+
+    def test_discover_cursor_shape_and_runtime_parser(self):
         markup = b'<div id="media-list"><div id="page_1" class="page_wrapper"><a href="/movie/1-hi?q=x">Hi</a>'
         self.assertEqual({'ids':['tmdb:1'],'next':2},
-                         regional_page(markup+b'<a class="load_more" data-next-page="2">More</a>',1))
+                         discover_page(markup+b'<a class="load_more" data-next-page="2">More</a>',1))
         with self.assertRaises(ProviderError):
-            regional_page(markup, 2)
+            discover_page(markup, 2)
         tags = detail_tags(b'<section class="keywords"><a href="/keyword/12-time-loop/movie">time loop</a>'
                            b'<span class="runtime">1h 29m</span></section>')
         self.assertEqual(['time loop'],tags['keywords'])
@@ -326,13 +450,70 @@ class ProviderTest(unittest.TestCase):
         self.assertEqual(2, len(requests))
         self.assertTrue(requests[-1][0].endswith('/movie/7?language=en-US'))
 
-    def test_reissue_never_changes_the_fresh_date(self):
+    def test_release_discovery_uses_primary_dates_in_all_countries(self):
         provider = PublicProvider(Path('.'))
-        provider.offer = lambda _: 'DK offer'
-        provider.request = lambda *args: ['2027-12-10']
-        for year, expected in ((2027, '2027-12-10'), (1995, '1995-06-01')):
-            meta = {'type':'movie','moviedb_id':'1','released':f'{year}-06-01'}
-            self.assertEqual(expected, provider.release_evidence(meta, NOW.date())['date'])
+        provider.keyword = lambda phrase: '1683'
+        requests = []
+        provider.request = lambda url, parse, ttl, payload: requests.append(payload)
+        provider.releases('2026-12-15', '2027-01-10', 2)
+        provider.releases('2026-12-15', '2027-01-10', 1, theme=THEMES['dinner-is-served'])
+        provider.releases('2027-01-11', '2028-01-10', 1, theme=THEMES['dinner-is-served'], upcoming=True)
+        expected = {'language': 'en-US', 'page': 2, 'include_adult': 'false',
+                    'sort_by': 'popularity.desc', 'primary_release_date.gte': '2026-12-15',
+                    'primary_release_date.lte': '2027-01-10'}
+        self.assertEqual(expected, requests[0])
+        self.assertEqual(dict(expected, page=1, sort_by='primary_release_date.desc', with_keywords='1683'), requests[1])
+        self.assertEqual({'language': 'en-US', 'page': 1, 'include_adult': 'false', 'with_keywords': '1683',
+                          'sort_by': 'primary_release_date.asc', 'primary_release_date.gte': '2027-01-11',
+                          'primary_release_date.lte': '2028-01-10'}, requests[2])
+
+    def test_release_evidence_uses_first_past_date_and_never_redates_an_old_movie(self):
+        provider = PublicProvider(Path('.'))
+        today = date(2027, 1, 3)
+        meta = {'type': 'movie', 'moviedb_id': '1', 'releaseInfo': '2026', 'released': '2027-02-04'}
+        def compare(row):
+            provider.request = lambda *a, **kw: row
+            return provider.release_evidence(meta, today)
+
+        self.assertIsNone(compare({'date': '2027-01-04'}))
+        confirmed = compare({'date': '2026-12-20', 'country': 'DE', 'type': 'Premiere'})
+        self.assertEqual('2026-12-20', confirmed['date'])
+        self.assertEqual('DE', confirmed['country'])
+        meta.update(releaseInfo='2027', released='2027-01-03')
+        self.assertEqual('2027-01-03', compare({'date': '2027-02-04'})['date'])
+        meta.update(releaseInfo='1995')
+        self.assertEqual('', compare({'date': '2027-01-03'})['date'])
+        self.assertEqual('1995-06-01', compare({'date': '1995-06-01'})['date'])
+        meta.update(releaseInfo='2026')
+        self.assertEqual('', compare({'date': '2027-01-03'})['date'])
+
+    def test_old_titles_without_exact_dates_and_future_titles(self):
+        provider = PublicProvider(Path('.'))
+        provider.request = lambda *a, **kw: self.fail('year-only eligibility needs no remote offer')
+        for kind in ('movie', 'series'):
+            meta = {'type': kind, 'id': 'tt123', 'releaseInfo': '2004'}
+            self.assertEqual({'date': '', 'year': 2004, 'source': 'Catalog release year'},
+                             provider.release_evidence(meta, NOW.date()))
+            self.assertIsNone(provider.release_evidence(dict(meta, released='2028-12-23'), NOW.date()))
+        for year in ('2027', '2028', ''):
+            self.assertIsNone(provider.release_evidence({'type':'movie','releaseInfo':year}, NOW.date()))
+
+    def test_optional_date_outage_keeps_confirmed_films_and_retries_unknown_ones(self):
+        provider = PublicProvider(Path('.'))
+        today = date(2027, 1, 3)
+        for error in (catalog.d.DiscoveryError('UPSTREAM_HTTP_429'), ProviderError('unrecognized release table')):
+            def fail(*a, **kw):
+                raise error
+            provider.request = fail
+            meta = {'type':'movie', 'moviedb_id':'7', 'releaseInfo':'2027', 'released':'2027-01-01'}
+            self.assertEqual('2027-01-01', provider.release_evidence(meta, today)['catalog_date'])
+            self.assertEqual('', provider.release_evidence(dict(meta, releaseInfo='1984'), today)['date'])
+            del meta['released']
+            self.assertEqual(2026, provider.release_evidence(dict(meta, releaseInfo='2026'), today)['year'])
+            with self.assertRaises(type(error)):
+                provider.release_evidence(meta, today)
+            with self.assertRaises(type(error)):
+                provider.release_evidence(dict(meta, released='2027-01-04'), today)
 
 
 if __name__ == '__main__':

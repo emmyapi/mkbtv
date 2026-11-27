@@ -19,6 +19,8 @@ from seasonal_provider import DAY, ProviderError, PublicProvider, day_value, min
 VARIANTS = {
     'family reunion': ['family reunites', 'reunite with his family', 'reunite with her family',
                      'reunion with his family', 'estranged family', 'brings his family together'],
+    'family conflict': ['tears the family apart', 'tear the family apart', 'destroying his family',
+                        'destroying her family'],
     'family christmas': ['family christmas', 'family for christmas', 'christmas with his family',
                          'christmas with her family', 'christmas with their family', 'family for the holidays'],
     'child left home alone': ['left home alone', 'left behind by his family', 'home invasion', 'burglars'],
@@ -61,8 +63,9 @@ ANNOUNCEMENT = {
 ATTACHED_SPECIALS = {
     'tt23546646': 'https://prod.dreamworks.com/shows/boss-baby%3A-back-in-the-crib',
 }
-REVISION = 3
+REVISION = 5
 THEME_KEYWORD_PAGES = 3
+RELEASE_PAGES = 3
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS run(theme TEXT PRIMARY KEY, revision TEXT NOT NULL, day TEXT NOT NULL,
     full_day TEXT NOT NULL, checked TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0);
@@ -169,6 +172,10 @@ def qualify(theme, meta, facts):
         elif not (documentary and signals and any(evidence(s, surfaces) for s in
                        ('making of', 'behind the scenes', 'filmmaking', 'production of', 'making star wars'))):
             return None
+    elif slug == 'dinner-is-served':
+        # An incidental Thanksgiving tag also occurs on films about Christmas.
+        stories = [(source, text) for source, text in surfaces if source != 'TMDB keyword']
+        signals = [e for signal in theme['signals'] if (e := evidence(signal, stories))]
     elif slug == 'fourth-of-july':
         dates = ('fourth of july', '4th of july', 'july 4', 'july 4th', 'july fourth',
                  'american independence day', 'u.s. independence day', 'us independence day')
@@ -264,7 +271,13 @@ def start_pass(db, theme, today):
         enqueue(db, slug, 'search', announcement[0], 10)
     if slug == 'the-one-that-got-away':
         enqueue(db, slug, 'award_list', '', 25)
-    enqueue(db, slug, 'releases', (str(since), str(today), 1), 20)
+    for kind in ('theme_releases', 'releases'):
+        enqueue(db, slug, kind, (str(since), str(today), 1), 20)
+    # A festival screening can precede the primary release by months. TMDB's
+    # website silently localizes release_date queries. Its primary date queries
+    # are global, so check upcoming candidates against the actual release table.
+    for kind in ('upcoming_theme_releases', 'upcoming_releases'):
+        enqueue(db, slug, kind, (str(today + timedelta(days=1)), str(today + timedelta(days=365)), 1), 21)
     editorial_ids = {seed['id'] for seed in theme['references'] + theme['reserves']}
     for row in db.execute('SELECT uid FROM item WHERE theme=?', (slug,)):
         if row[0] not in editorial_ids:
@@ -288,9 +301,29 @@ def store(db, theme, uid, today, item):
         db.execute('UPDATE run SET generation=generation+1 WHERE theme=?', (slug,))
 
 
+def candidate_card(db, slug, uid, provider):
+    meta = provider.card('movie', uid)
+    if not uid.startswith('tt'):
+        return meta
+    if meta and (meta.get('type') != 'movie' or minutes(meta.get('runtime')) is not None or
+                 ('movie', uid) not in d.title_keys(meta)):
+        return meta
+    # A canonical IMDb recheck can return a sparse Cinemeta card even when
+    # this movie was first verified from a full TMDB record.
+    row = db.execute('SELECT data FROM item WHERE theme=? AND uid=?', (slug, uid)).fetchone()
+    number = json.loads(row[0])['meta'].get('moviedb_id') if row else None
+    if not number or (meta and meta.get('moviedb_id') not in (None, number)):
+        return meta
+    alias = 'tmdb:' + number
+    alternate = provider.card('movie', alias)
+    if alternate and d.title_keys(alternate) == {('movie', uid), ('movie', alias)}:
+        return alternate
+    return meta
+
+
 def evaluate(db, theme, requested, provider, today, selected=None):
     slug = theme['slug']
-    meta = provider.card(selected['type'] if selected else 'movie', requested)
+    meta = provider.card(selected['type'], requested) if selected else candidate_card(db, slug, requested, provider)
     if not meta:
         return store(db, theme, requested, today, None)
     actual_ids = {uid for _, uid in d.title_keys(meta)}
@@ -384,12 +417,18 @@ def process(db, theme, kind, arg, provider, today):
                 enqueue(db, slug, 'candidate', uid, 10, repeat=True)
     elif kind == 'award_list':
         record_ids(db, slug, reversed(list(provider.awards())), 'Best Picture nominations', priority=39)
-    elif kind == 'releases':
+    elif kind in ('theme_releases', 'releases', 'upcoming_theme_releases', 'upcoming_releases'):
         start, end, page = arg
-        rows = provider.releases(start, end, page)
-        record_ids(db, slug, rows['ids'], 'DK home release', priority=40)
-        if rows['next']:
-            enqueue(db, slug, 'releases', [start, end, rows['next']], 29 + min(page, 45))
+        targeted = kind in ('theme_releases', 'upcoming_theme_releases')
+        upcoming = kind in ('upcoming_theme_releases', 'upcoming_releases')
+        rows = provider.releases(start, end, page, theme=theme if targeted else None, upcoming=upcoming)
+        source = 'TMDB worldwide theme release' if targeted else 'TMDB worldwide release'
+        if upcoming:
+            source += ' (upcoming primary date)'
+        record_ids(db, slug, rows['ids'], source, priority=22 if targeted else 40)
+        page_limit = 1 if kind == 'upcoming_releases' else RELEASE_PAGES
+        if rows['next'] and page < page_limit:
+            enqueue(db, slug, kind, [start, end, rows['next']], 29 + page)
 
 
 def refresh_theme(root, theme_id, now=None, *, limit=24, provider=None):

@@ -1,8 +1,8 @@
-"""Public movie discovery and Danish release evidence. This module accepts no profile input."""
+"""Public movie discovery and worldwide release evidence. This module accepts no profile input."""
 
 from contextlib import closing
 import csv
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import unescape
 from html.parser import HTMLParser
 from io import StringIO
@@ -13,14 +13,13 @@ import re
 import sqlite3
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 import discovery as d
 
 AWARDS = 'https://raw.githubusercontent.com/DLu/oscar_data/master/oscars.csv'
 DAY = 86400
-DENMARK = 'DK'
 IMDB_TITLES = 'https://v3.sg.media-imdb.com/suggestion/t/'
 
 
@@ -67,7 +66,7 @@ def parse_awards(body):
 
 
 class MoviePage(HTMLParser):
-    """Read only typed catalog IDs, keyword links and region-bound offers from TMDB."""
+    """Read typed catalog IDs, pagination and title details from TMDB."""
 
     def __init__(self, body):
         super().__init__()
@@ -76,8 +75,6 @@ class MoviePage(HTMLParser):
         self.current_keyword = False
         self.overview_depth = 0
         self.overview = []
-        self.offers = False
-        self.watch_page = False
         self.page = None
         self.next_page = None
         self.feed_seen = False
@@ -108,10 +105,6 @@ class MoviePage(HTMLParser):
             if re.fullmatch(r'/keyword/\d+-[^/]+/movie', url.path):
                 self.current_keyword = True
                 self.details = True
-            if url.hostname == 'www.justwatch.com' and url.path.startswith('/dk/'):
-                self.watch_page = True
-            if url.hostname == 'click.justwatch.com' and parse_qs(url.query).get('uct_country') == ['dk']:
-                self.offers = True
             if 'load_more' in classes and a.get('data-next-page', '').isdigit():
                 self.next_page = int(a['data-next-page'])
 
@@ -132,40 +125,36 @@ class MoviePage(HTMLParser):
             self.collection = 'tmdb:' + match[1]
 
 
-def regional_page(body, page):
+def discover_page(body, page):
     html = MoviePage(body)
     if not html.feed_seen or html.page != page or (
         html.next_page is not None and (html.next_page != page + 1 or not html.ids)
     ):
-        raise ProviderError('invalid regional release page')
+        raise ProviderError('invalid movie discovery page')
     return {'ids': list(html.ids), 'next': html.next_page}
 
 
-def availability(body):
-    page = MoviePage(body)
-    if page.offers:
-        return True
-    if (b'There are no offers for ' in body and b'ott_title' in body and
-            re.search(rb'''value:\s*["']DK["']''', body)):
-        return False
-    raise ProviderError('unrecognized regional availability page')
-
-
-def home_dates(body):
+def first_worldwide_release(body):
     text = body.decode()
-    if 'class="card releases"' not in text:
+    tables = re.findall(r'<table\b[^>]*class="card releases"[^>]*>(.*?)</table>', text, re.S | re.I)
+    if not tables:
         raise ProviderError('unrecognized release table')
-    for table in re.findall(r'<table\b[^>]*>.*?</table>', text, re.S | re.I):
-        if not re.search(r'<h2\b[^>]*\bid="DK"', table):
-            continue
-        result = []
+    earliest = None
+    for table in tables:
+        country = re.search(r'<h2\b[^>]*\bid="([A-Z]{2})"', table)
         for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', table, re.S | re.I):
             cells = [unescape(re.sub(r'<[^>]+>', '', value)).strip() for value in
                      re.findall(r'<td\b[^>]*>(.*?)</td>', row, re.S | re.I)]
-            if len(cells) >= 3 and cells[2] in ('Digital', 'Physical', 'TV'):
-                result.append(datetime.strptime(cells[0], '%m/%d/%Y').date().isoformat())
-        return sorted(result)
-    return []
+            if len(cells) < 3 or cells[2] not in ('Premiere', 'Theatrical (limited)', 'Theatrical',
+                                                 'Digital', 'Physical', 'TV'):
+                continue
+            try:
+                released = datetime.strptime(cells[0], '%m/%d/%Y').date().isoformat()
+            except ValueError:
+                continue
+            if not earliest or released < earliest['date']:
+                earliest = {'date': released, 'type': cells[2], 'country': country[1] if country else ''}
+    return earliest
 
 
 def detail_tags(body):
@@ -283,14 +272,19 @@ class PublicProvider:
         if not keyword:
             return {'ids': [], 'next': None}
         params['with_keywords'] = keyword
-        return self.request(d.TMDB + '/discover/movie/items', lambda b: regional_page(b, page), DAY, params)
+        return self.request(d.TMDB + '/discover/movie/items', lambda b: discover_page(b, page), DAY, params)
 
-    def releases(self, start, end, page):
-        return self.request(d.TMDB + '/discover/movie/items', lambda b: regional_page(b, page), DAY, {
-            'language': 'en-US', 'region': DENMARK, 'with_release_type': '4|5|6', 'include_adult': 'false',
-            'release_date.gte': start, 'release_date.lte': end, 'sort_by': 'primary_release_date.desc',
-            'page': page,
-        })
+    def releases(self, start, end, page, *, theme=None, upcoming=False):
+        params = {'language': 'en-US', 'include_adult': 'false', 'page': page,
+                  'primary_release_date.gte': start, 'primary_release_date.lte': end,
+                  'sort_by': 'popularity.desc'}
+        if theme:
+            keyword = self.first_keyword(theme['signals'])
+            if not keyword:
+                return {'ids': [], 'next': None}
+            order = 'primary_release_date.asc' if upcoming else 'primary_release_date.desc'
+            params.update(with_keywords=keyword, sort_by=order)
+        return self.request(d.TMDB + '/discover/movie/items', lambda b: discover_page(b, page), DAY, params)
 
     def awards(self):
         return self.request(AWARDS, parse_awards, DAY)
@@ -324,44 +318,41 @@ class PublicProvider:
                 facts['texts']['TMDB overview'] = tags['overview']
         return facts
 
-    def offer(self, meta):
-        number = meta.get('moviedb_id')
-        if not number:
-            return ''
-        kind = 'tv' if meta['type'] == 'series' else 'movie'
-        url = f'{d.TMDB}/{kind}/{number}/watch?locale=DK&language=en-US'
-        try:
-            return url if self.request(url, availability, DAY // 4) else ''
-        except d.DiscoveryError as exc:
-            if str(exc) != 'UPSTREAM_HTTP_404':
-                raise
-            return ''
-
     def release_evidence(self, meta, today):
         original = day_value(meta.get('released'))
-        if original and original > today:
-            return None
-        offer = self.offer(meta)
+        year = release_year(meta)
+        earliest = {'date': str(original), 'source': 'Catalog release date'} if original else None
+        prior_year = bool(year and year < today.year)
+        # An established title needs no extra upstream call. A recent, upcoming
+        # or undated title may already have premiered elsewhere before its card date.
+        cutoff = today - timedelta(days=90)
+        needs_dates = original >= cutoff if original else not year or year >= cutoff.year
         number = meta.get('moviedb_id')
-        recent = original and (today - original).days <= 548
-        dates_url = f'{d.TMDB}/movie/{number}/releases?language=en-US'
-        dates = []
-        if number and meta['type'] == 'movie' and (not offer or recent):
+        if needs_dates and number and meta['type'] == 'movie':
+            url = f'{d.TMDB}/movie/{number}/releases?language=en-US'
             try:
-                dates = self.request(dates_url, home_dates, DAY // 4)
-            except d.DiscoveryError as exc:
+                first = self.request(url, first_worldwide_release, DAY // 4, cache_version='worldwide-first-v1')
+            except (d.DiscoveryError, ProviderError) as exc:
                 if str(exc) != 'UPSTREAM_HTTP_404':
-                    raise
-        home = next((day_value(v) for v in dates if day_value(v) and day_value(v) <= today), None)
-        if not offer and not home:
-            return None
-        # A reissue must never reset the age of an established film. A live DK
-        # offer proves readiness when TMDB has no dated regional home-release row.
-        fresh = home if home and recent else original
-        if fresh and release_year(meta) and release_year(meta) + 1 < fresh.year:
-            fresh = None
-        return {'market': 'DK', 'offer': offer, 'home': home.isoformat() if home else '',
-                'source': dates_url if home else offer, 'date': fresh.isoformat() if fresh else ''}
+                    if original and original <= today:
+                        # The card proves release. Retry the international date
+                        # comparison next pass before granting a freshness boost.
+                        return {'date': '', 'catalog_date': str(original), 'source': 'Catalog release date'}
+                    if not (prior_year and not original):
+                        raise
+                first = None
+            if first and (not earliest or first['date'] <= earliest['date']):
+                earliest = dict(first, source=url)
+        if earliest:
+            released = day_value(earliest['date'])
+            if released > today:
+                return None
+            if not year or released.year <= year:
+                return earliest
+            # A later regional release or reissue cannot make an older title fresh.
+        if prior_year:
+            return {'date': '', 'year': year, 'source': 'Catalog release year'}
+        return None
 
     def subtype(self, uid):
         path = Path(os.environ.get('MKBTV_CATALOG_DIR', self.root.parent / 'catalog')) / 'catalog.sqlite3'

@@ -1,6 +1,7 @@
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -129,6 +130,21 @@ class SeasonalSelectionTests(unittest.TestCase):
         after = self.ids(self.view()[1])
         self.assertEqual(len(after), 16)
         self.assertEqual([uid for uid in after if uid != premiere['meta']['id']], reduced)
+
+    def test_previous_market_exhaustion_reopens_without_losing_watches(self):
+        self.pool.update(editorial=[], dynamic=self.movies[:1])
+        mark = {'type': 'movie', 'id': self.movies[0]['meta']['id'], 'at': seasonal.millis(instant(12, 23))}
+        self.assertIsNone(self.view(seasonalWatched=[mark])[1])
+        path = self.root / 'seasonal' / 'profiles' / '1.json'
+        state = json.loads(path.read_text())
+        self.assertTrue(state['closed'])
+        del state['release_scope']  # Profile persisted by the Denmark-only build.
+        discovery.atomic_json(path, state)
+        self.pool['dynamic'] = self.movies[:2]
+        self.assertEqual(self.ids(self.view()[1]), [self.movies[1]['meta']['id']])
+        self.assertIsNone(self.view(seasonalWatched=[dict(mark, id=self.movies[1]['meta']['id'])])[1])
+        self.pool['dynamic'] = self.movies[:3]
+        self.assertIsNone(self.view()[1])
 
     def test_unknown_empty_recovers_and_progress_only_retires_series(self):
         self.pool.update(editorial=[], dynamic=[], complete=False)

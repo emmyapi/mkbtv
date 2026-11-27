@@ -1,62 +1,316 @@
 # Seasonal recommendations on Home
 
-Product proposal for mkbtv. The calendar, title choices and numerical targets below are proposed editorial defaults. The title examples are candidates for verification against the catalog.
+Each published seasonal shelf contains exactly **16 different titles**. Eight places belong to the editorial selection for that theme. Eight belong to movies selected dynamically from those examples. At launch, 214 of the 216 opening selections are movies. The two deliberate whole-series choices are *Borgen* and the 1991 Danish *The Julekalender*. The TV opens the ordinary movie or series details page. Episodes, individual seasons, specials attached to a series and trailers are ineligible.
 
-## What appears on the TV
+## What viewers see
 
-Show one themed shelf immediately below **Continue Watching**, or in the first catalog position when that row is absent. Give it a recognizable English name, one restrained accent and an optional icon. Keep the usual posters, remote navigation and detail screens. Use English for headings, reasons and episode labels. Prefer official English display titles where available. The original proper name is appropriate for titles such as *Borgen*.
+Show at most one seasonal shelf immediately below **Continue Watching**, or in the first catalog position when that row is absent. Across the 27 themes, the references were chosen to include millennial-era favorites and films Gen Z grew up with or embraced later. Rank by thematic connection and watch history without inferring anyone's age. Give it an English heading, a restrained accent and an optional icon. Use English UI copy and official English titles where available. Choose membership first, then give all 16 one display order based on relevance to the theme and profile, freshness and variety. Either type can lead or appear together. The 8 + 8 rule applies to membership only. There is no reserved first position, fixed alternation or quota for the first screen. Preserve the displayed order during a visit and use the previous order to break close ties on return. Keep the shelf's identity stable across the year and respect a profile's saved hide or reorder choice. Opening details leaves watch progress intact.
 
-On the first screenful, place a returning favorite beside a strong recent release whenever both qualify. The focused card can explain the choice in one short line, such as **Halloween at Greendale** or **A Christmas favorite from your watch history** when that history is known. For a special, show the series, episode name and season/episode number. Selecting it opens details focused on the exact episode. A season card opens the named season. Neither action starts playback or changes progress.
+## How the shelf understands its theme
 
-Give Seasonal recommendations one stable identity across events. The default position applies when first introduced. Respect a profile's subsequent hide or reorder choice. A returning viewer keeps their focus when posters update. Hide the shelf between qualifying windows.
+Every theme below supplies eight editorial examples, two editorial reserves, a calendar window and a rule describing what earns a place. The original eight are the **persistent reference set** even after some leave a profile's visible shelf. At catalog preparation, resolve each title, type, edition and year to canonical provider IDs. Annotate the examples with the particular story, setting, format or factual constraint that connects them to this theme. For example, *Jaws* teaches **the July Fourth beach holiday** on the Independence Day shelf. Its shark teaches nothing about that occasion.
+
+1. **Retrieve from the eight.** Query related movies for each reference. Also search new home releases and the wider catalog using the examples' theme-relevant traits. This second path lets a new movie enter before providers have accumulated votes or recommendation links. Alternate source and seed when gathering candidates. Keep which seed contributed which signal. Store the theme relationships independently of current posters, per-profile watch history and shelf occurrence. Removing a poster only changes what is shown. The eight references keep their full editorial influence across refills and future years.
+   Keep a record of previously shown discoveries and their verified connections to the eight. They remain usable as secondary lookup sources after rotation. A movie that this profile actually watched can additionally influence ranking for this profile, including across annual windows. Mere display or rotation is neutral. Keep presentation exclusions separate from reference lookup and suppress a personal boost if the watch is undone or the viewer rejected that title. Every new result must still pass the original theme and seed checks, however many replacements occurred.
+2. **Qualify the movie twice.** Require evidence that it meets the shelf's written rule and a specific connection to at least one of the original eight. For Christmas that might be a documented Christmas plot and the family-reunion premise shared with *Home Alone*. For the Oscars, verify the nomination and that year's different winner, then match a storytelling trait of a seed. A sequel, shared actor, generic genre or similar poster alone cannot pass. A release in the right month is insufficient. A constrained theme may use a documented franchise or subject connection. Two copies of one synopsis count once. Allow an editor to exclude a false match by ID.
+3. **Rank for this profile.** Apply profile exclusions, released/playable-catalog eligibility, known watch history and canonical deduplication first. Rank by thematic fit, number and strength of independent seed connections, coverage of distinct seed traits, then freshness and profile affinity. Break ties deterministically by canonical ID. As a diversity target, cover at least three different reference titles across the eight dynamic picks when possible. Normally cap a franchise at two visible titles, with an explicit exception for *May the Fourth*. Keep at least one place among the dynamic eight for a qualifying release from the last 90 days when available. Low vote counts are expected for premieres.
+4. **Keep the explanation.** Record target ID, editorial or dynamic slot, reference IDs, matched traits, title-level evidence, release evidence and why the next alternative lost. On TV an optional English reason should describe the connection in plain language, for example **Christmas through a child's eyes**. Keep plot twists out of reasons.
+
+## What happens when someone watches a title
+
+| Event on this profile | What changes at the next Home refresh |
+|---|---|
+| A dynamic movie is completed or explicitly marked watched | Remove it and promote the next eligible unseen movie from the precomputed pool into its dynamic place. Evaluate the replacement against the original eight even after repeated refills. Record its theme connections for future retrieval and its watch signal for this profile. On a single completion keep the other fifteen eligible cards stable for the current visit, then rank the next lineup together when Home reopens. |
+| An editorial choice is completed or marked watched | Replace it with the next eligible, preferably unseen handpicked reserve listed for that shelf. The original eight continue to define the theme. Reserve titles are exclusive to the editorial side. A dynamic discovery can never silently occupy an editorial place. |
+| A chosen whole series enters Continue Watching | Release its shelf place to an editorial reserve once real progress is recorded. The viewer continues from the separate progress row. Starting one episode does not mark the whole series complete. A film merely opened, sampled or paused keeps its place until the normal movie completion signal. |
+| The profile already knows most of the curated titles | Select the eight opening titles for a fresh profile and rank them together with its eight discoveries. For a returning profile, prefer unseen editorial titles and reserves, then allow an older editorial favorite as a marked rewatch. Exclude the just-finished item from its immediate replacement and any series already in Continue Watching. Keep explicit hides and profile exclusions in force even for rewatches. If the ten handpicked titles have been exhausted, rotate the least recently completed eligible favorites. The dynamic half continues to require unseen films. |
+| A relevant film is released during the window | Admit it on the next successful daily import once the release and its thematic evidence are confirmed. Fill a vacant dynamic place first, otherwise replace the weakest dynamic pick when the premiere qualifies for the recent slot. Keep the remaining order stable. |
+
+Use the profile's existing completion event and manual watched action, including discoveries completed outside the shelf. Precompute a ranked overflow pool before the window opens and extend it as it drains. Prefer at least eight distinct eligible dynamic standbys per theme at preflight. A watch should refill from cached candidates on the next successful Home/history sync, without waiting for the nightly provider job. Apply simultaneous completions as one update. Replayed events are idempotent and do not consume another reserve. When a watched mark is undone, the title can re-enter the candidate pool on reevaluation. Avoid replacing the card under the remote's focus until selection or return to Home is safe.
+
+**Exactly sixteen is a publication requirement.** Verify eight distinct eligible editorial titles and eight distinct eligible dynamic movies after all profile filters. The editorial eight and their two reserves are excluded from dynamic selection for that theme. If a source fails, reuse a complete cached result only while every slot still qualifies for this profile and time. If only a slot changes, rebuild the complete 16-card publication from the remaining valid cards and cached overflow. If a full lineup cannot be assembled, try the next active theme or omit the seasonal row. Never use a watched dynamic movie, repeat a poster or publish a partial row to cover a shortage. Flag the shortfall in the editorial preview so the pool can be improved.
 
 ## Annual programming calendar
 
-Use civil dates in **Europe/Copenhagen**. Table ranges include the first and last named date. All-day events start at local midnight and expire at the start of the following day. Times shown override that rule. The holiday and the editorial viewing window are separate values. A program editor can change the latter without moving the holiday.
+All windows use **Europe/Copenhagen**. Date ranges include the last named civil date. Apply explicit clock times where given. The opening eight identify the editorial membership for a fresh profile. Their printed order has no significance on TV. Each pair of reserves is also handpicked and sits outside the initial 16. Films are the default. The two whole-series picks are explicitly identified in their respective lists. Editions and catalog availability must be resolved before publication.
 
 ### Winter and spring
 
-| English shelf | When it runs | Starting lineup | How future releases earn a place |
-|---|---|---|---|
-| The Morning After | January 1, 08:00 to midnight | *School of Rock*, *Paddington 2*, a self-contained *Parks and Recreation* episode | Look for warm, easy-entry comedies with a complete story. Give a new family film or standalone comedy special a slot after a tone check. A sequel that needs homework is a poor opener. |
-| Groundhog Day on Repeat | February 2 only | *Groundhog Day*, *Edge of Tomorrow*, *Russian Doll* | A character must actually relive a period of time. Confirm a new time-loop film, series or exact episode through its premise. Ordinary time travel is too broad. |
-| Behind the Mask | Friday 16:00 before Fastelavn through Fastelavn Sunday. Fastelavn is Easter Sunday minus 49 days | *The Mask of Zorro*, *The Incredibles*, *Alias* | Look for a disguise, masquerade or double identity that drives the story. For a long-running series select a fitting episode when the theme is occasional. |
-| It's Complicated | February 10–14 | *10 Things I Hate About You*, *To All the Boys I've Loved Before*, *Heartstopper* | Admit a new love story where the relationship drives the plot. Rotate first love, adult romance and queer romance. Keep a comedy and a series in the running. |
-| Snowed In | Winter school break including the surrounding weekends. Editorial fallback is Saturday before ISO week 7 through its Sunday | *The Thing*, *Fargo* (film), *The Holdovers* | Snow, isolation or being stranded must shape the story. A new Nordic mystery or family snow adventure can qualify. Keep both warm and tense picks when the profile permits them. |
-| The One That Got Away | Two calendar days before the official Oscar ceremony's host-city date through the day after it, shown on Danish civil dates | *Arrival*, *The Social Network*, *Lady Bird* | Require a confirmed Best Picture nomination and a different winner for that ceremony. Add the new non-winners only after official results. Until then draw from earlier years. This is a film-only theme. |
-| Under 90 Minutes | Friday 16:00 before the spring clock change through the Sunday of the change | *Run Lola Run*, *Before Sunset*, *My Neighbor Totoro* | Use a verified runtime strictly below 90 minutes for a feature or self-contained TV special. A whole series cannot qualify on average episode runtime. Mix genres and decades. |
-| The Easter Mystery Club | Palm Sunday through Easter Monday, inclusive | *Clue*, *Knives Out*, *Broadchurch* | Admit a fair-play puzzle, a whodunit or one complete, identifiable case. A strong new detective miniseries fits without an Easter setting. Offer both a one-evening film and a longer case. |
-| Trust No One | April 1 only | *The Truman Show*, *The Game*, *The Good Place* | Look for a staged reality, elaborate con or unreliable point of view. An editor checks the public English reason for spoilers. Surprise alone is insufficient. |
-| One Wild Planet | April 20–22, ending on Earth Day | *WALL-E*, *Princess Mononoke*, *Planet Earth* | Include conservation, interdependence or close observation of nature. A new wildlife series or environmental drama qualifies. Scenery or a distant planet on its own is a weak match. |
-| May the Fourth | May 3 at 16:00 through May 4 | *The Empire Strikes Back*, *Rogue One*, an individual *Star Wars: Visions* short | Require verified Star Wars identity. Mix eras, live action and animation. Give a newly aired story or short a slot with a usable target. Allow this theme to draw entirely from one franchise. |
-| Twelve Points! | First official Eurovision semifinal through the day after the Grand Final | *Eurovision Song Contest: The Story of Fire Saga*, *Pitch Perfect*, *Glee* | Seek song contests, stage competition or Eurovision itself. A new competition film or performance special can qualify. A soundtrack by a contestant is weak evidence. |
+#### The Morning After
+
+**When** — January 1, 08:00 to midnight.
+
+**Opening eight** — *School of Rock* · *Paddington 2* · *Legally Blonde* · *The Emperor's New Groove* · *Chef* · *The Princess Bride* · *The Mitchells vs. the Machines* · *Mrs. Harris Goes to Paris*.
+
+**Editorial reserves** — *Sister Act* · *The Muppets (2011)*.
+
+Easy-entry comfort watch. Require a self-contained, warm comedy or family adventure with friendship, purpose or kindness at its center. A recognizable franchise on its own tells us little about tone.
+
+#### Groundhog Day on Repeat
+
+**When** — February 2 only.
+
+**Opening eight** — *Groundhog Day* · *Palm Springs* · *Edge of Tomorrow* · *Happy Death Day* · *Source Code* · *The Map of Tiny Perfect Things* · *Before I Fall* · *Boss Level*.
+
+**Editorial reserves** — *The Endless (2017)* · *The Fare (2018)*.
+
+The protagonist or another central character actually relives a period of time. Borrow the comic reset, puzzle or escalating survival premise from a seed. Ordinary time travel is too broad.
+
+#### Behind the Mask
+
+**When** — Friday 16:00 before Fastelavn through Fastelavn Sunday. Fastelavn is Easter Sunday minus 49 days.
+
+**Opening eight** — *The Mask of Zorro* · *The Incredibles* · *Mulan (1998)* · *Mrs. Doubtfire* · *She's the Man* · *Spider-Man: Into the Spider-Verse* · *A Cinderella Story (2004)* · *Hit Man (Richard Linklater)*.
+
+**Editorial reserves** — *Some Like It Hot* · *Face/Off*.
+
+A mask, disguise, masquerade or double life materially changes relationships or drives the action. A costume in one scene is insufficient.
+
+#### It's Complicated
+
+**When** — February 10–14.
+
+**Opening eight** — *10 Things I Hate About You* · *To All the Boys I've Loved Before* · *When Harry Met Sally...* · *Love & Basketball* · *The Big Sick* · *The Half of It* · *Crazy Rich Asians* · *Red, White & Royal Blue*.
+
+**Editorial reserves** — *Saving Face (2004)* · *Set It Up*.
+
+Love is the central story. Use the references to span first love, misunderstandings, queer romance and adult relationships. A romance subplot in an action picture is too weak.
+
+#### Snowed In
+
+**When** — Winter school break including the surrounding weekends. Editorial fallback is Saturday before ISO week 7 through its Sunday.
+
+**Opening eight** — *The Thing (1982)* · *Fargo (1996)* · *The Holdovers* · *Frozen (2013)* · *Society of the Snow* · *The Hateful Eight* · *Snowpiercer (2013)* · *Arctic (2018)*.
+
+**Editorial reserves** — *Eight Below* · *Force Majeure (2014)*.
+
+Winter conditions, isolation or being stranded must change the choices people make. Allow warm winter company and tense survival films. A snowy establishing shot is weak evidence.
+
+#### The One That Got Away
+
+**When** — Two calendar days before the official Oscar ceremony's host-city date through the day after it, shown on Danish civil dates.
+
+**Opening eight** — *Arrival* · *The Social Network* · *Lady Bird* · *Good Will Hunting* · *Get Out* · *La La Land* · *Past Lives* · *Barbie*.
+
+**Editorial reserves** — *Hidden Figures* · *Dunkirk (2017)*.
+
+Confirm a Best Picture nomination and a different winner for that ceremony. Then compare the filmmaking or story with one of the eight. Admit current-year non-winners only after the result is official. [Academy Awards database](https://awardsdatabase.oscars.org/)
+
+#### Under 90 Minutes
+
+**When** — Friday 16:00 before the spring clock change through the Sunday of the change.
+
+**Opening eight** — *Run Lola Run* · *Before Sunset* · *My Neighbor Totoro* · *Fantastic Mr. Fox* · *Cloverfield* · *Frances Ha* · *Modern Times* · *Rye Lane*.
+
+**Editorial reserves** — *Attack the Block* · *Shaun the Sheep Movie*.
+
+Verify the feature's actual edition runs under 90 minutes. Match the examples' compact storytelling across animation, thrillers, romance and comedy. Exclude runtimes rounded down from 90 and unverified cuts. [Before Sunset](https://www.criterion.com/films/28693-before-sunset) · [My Neighbor Totoro](https://gkids.com/films/my-neighbor-totoro/) · [Rye Lane](https://www.bbfc.co.uk/release/rye-lane-q29sbgvjdglvbjpwwc0xmda1otuz)
+
+#### The Easter Mystery Club
+
+**When** — Palm Sunday through Easter Monday, inclusive.
+
+**Opening eight** — *Clue* · *Knives Out* · *Murder on the Orient Express (1974)* · *Enola Holmes* · *See How They Run* · *The Kid Detective* · *Gosford Park* · *Zootopia*.
+
+**Editorial reserves** — *The Last of Sheila* · *Confess, Fletch*.
+
+A complete mystery with a question, investigation and resolution. Draw from manor-house suspects, family sleuths and modern detective comedies. A crime backdrop alone is insufficient.
+
+#### Trust No One
+
+**When** — April 1 only.
+
+**Opening eight** — *The Truman Show* · *The Game (1997)* · *The Sting* · *The Prestige* · *Matchstick Men* · *The Handmaiden* · *Sharper* · *Now You See Me*.
+
+**Editorial reserves** — *Ocean's Eleven (2001)* · *The Spanish Prisoner*.
+
+Look for a con, manufactured reality, deception or unreliable point of view at the heart of the film. Keep the explanation spoiler-safe.
+
+#### One Wild Planet
+
+**When** — April 20–22, ending on Earth Day.
+
+**Opening eight** — *WALL-E* · *Princess Mononoke* · *The Wild Robot* · *The Biggest Little Farm* · *Nausicaä of the Valley of the Wind* · *March of the Penguins (2005)* · *My Octopus Teacher* · *Flow (2024)*.
+
+**Editorial reserves** — *The Lorax (2012)* · *Winged Migration*.
+
+Look for human impact on an ecosystem, survival within one, or sustained observation of nature. Link a title to a specific seed through ecology, conservation or wildlife. Landscapes alone are insufficient.
+
+#### May the Fourth
+
+**When** — May 3 at 16:00 through May 4.
+
+**Opening eight** — *Star Wars: A New Hope* · *The Empire Strikes Back* · *Return of the Jedi* · *The Phantom Menace* · *Revenge of the Sith* · *The Force Awakens* · *Rogue One: A Star Wars Story* · *Star Wars: The Clone Wars (2008 film)*.
+
+**Editorial reserves** — *The Last Jedi* · *Solo: A Star Wars Story*.
+
+Use canonical Star Wars story films and independently cataloged feature documentaries about making those films or the franchise itself. A documentary can match a specific opening film through its documented subject. General space opera, short featurettes and TV installments are out. The single-franchise exception applies here. [Official films](https://www.starwars.com/films) · [Example of a standalone franchise documentary](https://www.disturbanceintheforce.com/)
+
+#### Twelve Points!
+
+**When** — First official Eurovision semifinal through the day after the Grand Final.
+
+**Opening eight** — *Eurovision Song Contest: The Story of Fire Saga* · *Pitch Perfect* · *Sing (2016)* · *Teen Spirit (2018)* · *Bandslam* · *Joyful Noise* · *Let It Shine* · *Metal Lords*.
+
+**Editorial reserves** — *American Dreamz* · *The Fighting Temptations*.
+
+Require Eurovision, a stage competition, or a musical act actually working towards a competitive performance. A pop soundtrack by itself is insufficient.
 
 ### Summer and autumn
 
-| English shelf | When it runs | Starting lineup | How future releases earn a place |
-|---|---|---|---|
-| Pride on Screen | June 1–30, resuming between shorter events | *But I'm a Cheerleader*, *Pride*, *Heartstopper* | Look for LGBTQ+ stories with a central character, relationship, community or documented history. Use an explicit synopsis, distributor description or reviewed collection. Vary decades, tone and genre. |
-| Made in Denmark | June 4–6, centered on Constitution Day on June 5 | *The Olsen Gang*, *Another Round*, *Borgen* | Confirm Danish production or a documented Danish-led co-production. Rotate classic comedy, modern film and TV. A Danish actor appearing in a foreign production alone does not qualify it. |
-| Midsummer After Dark | June 20–23, peaking on Sankt Hans Eve, June 23 | *The Wicker Man* (1973), *Kiki's Delivery Service*, *Midsommar* | Seek solstice rituals, local folklore or witchcraft central to the story. Alternate family folklore with adult folk horror for eligible profiles. Filming in Scandinavia is insufficient. |
-| One More Song | Last Thursday of June through the following Sunday, an editorial festival weekend | *Almost Famous*, *Stop Making Sense*, *Daisy Jones & the Six* | Give concert films, music documentaries and band stories separate consideration. A newly released tour film has a clear path even when it has few votes. |
-| Out of Town | Summer school break. Fallback is the last Saturday of June through the Sunday six weeks later (43 days after that Saturday) | *National Lampoon's Vacation*, *Little Miss Sunshine*, *The White Lotus* | The trip, summer stay or holiday must change the story. Rotate road trips, resort mysteries and family adventures each week. Include the relevant season for an anthology. |
-| Fourth of July | July 2–5 every year, including years when July 4 falls midweek | *Independence Day*, *Jaws*, *I Know What You Did Last Summer* (1997), *Stranger Things* season 3 | Prefer an explicit July 4 setting or celebration central to the plot. Keep a reviewed season at season level. An American production, flags on a poster or a US July release is insufficient. |
-| Back to School | Three days before the first day back after summer through six days after it. Fallback first day back is the Monday immediately following the fallback summer window | *The Breakfast Club*, *Mean Girls* (2004), *Abbott Elementary*, *Heartbreak High* (2022) | Look for student or teacher life at the center, with room for an exact first-day episode. Balance teen and teacher perspectives. |
-| Halloween After Dark | October 1–31, with October 30–31 reserved for Halloween | *Hocus Pocus*, *Scream* (1996), *Trick 'r Treat*, the *Community* episode *Epidemiology* | First seek an explicit Halloween setting, costume night or holiday episode. Fill a smaller share with reviewed spooky-season favorites. Vary family magic, slasher and comedy according to profile eligibility. A generic October horror premiere needs a second reason. |
-| Cabin Weekend | Autumn school break including the surrounding weekends. Fallback is Saturday before ISO week 42 through its Sunday | *The Great Outdoors*, *The Cabin in the Woods*, *Hilda* as a source of individual woodland adventures | A cabin stay, forest getaway or isolated retreat must drive the selected story. Verify the exact episode for a series that only sometimes fits. |
-| The Extra Hour | Friday 16:00 before the autumn clock change through the Sunday of the change | *The Fellowship of the Ring*, *Titanic*, *Dune: Part Two* | A new epic can enter on verified runtime of at least 150 minutes. Name a particular cut only when that edition can be identified. A self-contained feature-length TV special can also qualify. |
+#### Pride on Screen
+
+**When** — June 1–30, resuming between shorter events.
+
+**Opening eight** — *But I'm a Cheerleader* · *Bottoms* · *Pride (2014)* · *Moonlight* · *Love, Simon* · *Portrait of a Lady on Fire* · *The Adventures of Priscilla, Queen of the Desert* · *Paris Is Burning*.
+
+**Editorial reserves** — *The Wedding Banquet (2025)* · *The Half of It*.
+
+An LGBTQ+ character, relationship, community or documented history is central to the story. Use an explicit synopsis or credible editorial evidence. Vary intimate romance, comedy and community history.
+
+#### Made in Denmark
+
+**When** — June 4–6, centered on Constitution Day on June 5.
+
+**Opening eight** — *The Olsen Gang (1968)* · *Another Round* · *Borgen (2010, whole series)* · *Terkel in Trouble* · *Flickering Lights* · *Flee (2021)* · *The Promised Land (2023)* · *The Guilty (2018)*.
+
+**Editorial reserves** — *Babette's Feast* · *Riders of Justice*.
+
+Confirm Danish production or a documented Danish-led co-production. Use the opening picks to bridge crime, dry comedy, family cinema and character drama. A Danish actor alone is insufficient. [Borgen](https://drsales.dk/programmes/borgen-government-i-ii-iii/) · [Flee](https://www.norden.org/en/nominerade/flee-denmark)
+
+#### Midsummer After Dark
+
+**When** — June 20–23, peaking on Sankt Hans Eve, June 23.
+
+**Opening eight** — *Midsommar* · *Kiki's Delivery Service* · *The Wicker Man (1973)* · *Wolfwalkers* · *The Craft (1996)* · *Song of the Sea* · *The Witch (2015)* · *Practical Magic*.
+
+**Editorial reserves** — *The Secret of Kells* · *The Ritual (2017)*.
+
+A folk ritual, local legend or witchcraft drives the story. Distinguish a story set at midsummer from a folk-horror or family-folklore neighbor. The Wicker Man qualifies through its May Day ritual.
+
+#### One More Song
+
+**When** — Last Thursday of June through the following Sunday, an editorial festival weekend.
+
+**Opening eight** — *Almost Famous* · *Taylor Swift: The Eras Tour* · *Stop Making Sense* · *The Ballad of Wallis Island* · *This Is Spinal Tap* · *Summer of Soul* · *Sing Street* · *Homecoming: A Film by Beyoncé*.
+
+**Editorial reserves** — *The Last Waltz* · *Bohemian Rhapsody*.
+
+Give concert films, festival documentaries and fictional band stories distinct routes in. Confirm that the performance or the musicians' shared life is central. A hit soundtrack is insufficient.
+
+#### Out of Town
+
+**When** — Summer school break. Fallback is the last Saturday of June through the Sunday six weeks later (43 days after that Saturday).
+
+**Opening eight** — *National Lampoon's Vacation* · *Aftersun* · *Little Miss Sunshine* · *The Mitchells vs. the Machines* · *Girls Trip* · *The Parent Trap (1998)* · *Dirty Dancing* · *Y Tu Mamá También*.
+
+**Editorial reserves** — *The Way Way Back* · *The Darjeeling Limited*.
+
+Travel, a summer stay or a holiday must change the story. Match new picks to road-trip comedy, family holidays or tense trips. Alternate those strands over a long summer window.
+
+#### Fourth of July
+
+**When** — July 2–5 every year, including years when July 4 falls midweek.
+
+**Opening eight** — *Independence Day (1996)* · *Jaws* · *I Know What You Did Last Summer (1997)* · *The Sandlot* · *Flight of the Navigator* · *The Bay (2012)* · *1776 (1972)* · *When Sparks Fly*.
+
+**Editorial reserves** — *Sister of the Bride (2019)* · *Frogs (1972)*.
+
+Require a verified July Fourth setting, celebration, or Independence Day connection that materially affects the story, character or a memorable set piece. Cite the actual scene or biographical connection. An American setting or a July release is insufficient. In *The Sandlot*, fireworks give the kids their one nighttime game. [The Fourth of July scene](https://www.mlb.com/news/top-five-scenes-from-the-sandlot/c-43380712)
+
+#### Back to School
+
+**When** — Three days before the first day back after summer through six days after it. Fallback first day back is the Monday immediately following the fallback summer window.
+
+**Opening eight** — *Mean Girls (2004)* · *Booksmart* · *The Breakfast Club* · *Eighth Grade* · *Clueless* · *Stand and Deliver* · *Roald Dahl's Matilda the Musical* · *The Teachers' Lounge*.
+
+**Editorial reserves** — *Freedom Writers* · *The Class (2008)*.
+
+Require school life or the student/teacher experience to drive the main story. Alternate teen friendships, first-day nerves, classroom comedy and teacher dramas.
+
+#### Halloween After Dark
+
+**When** — October 1–31, with October 30–31 reserved for Halloween.
+
+**Opening eight** — *Hocus Pocus* · *Totally Killer* · *Halloween (1978)* · *Monster House* · *Trick 'r Treat* · *Halloweentown* · *The Nightmare Before Christmas* · *The Curse of Bridge Hollow*.
+
+**Editorial reserves** — *Haunt (2019)* · *Hubie Halloween*.
+
+Give priority to films with a Halloween night, costume tradition or seasonal celebration central to the action. Allow editorially reviewed spooky-season traditions with specific thematic proof. An October release or horror label alone does not qualify.
+
+#### Cabin Weekend
+
+**When** — Autumn school break including the surrounding weekends. Fallback is Saturday before ISO week 42 through its Sunday.
+
+**Opening eight** — *The Great Outdoors* · *Knock at the Cabin* · *The Cabin in the Woods* · *The Kings of Summer* · *On Golden Pond* · *Tucker & Dale vs. Evil* · *Your Sister's Sister* · *The Evil Dead (1981)*.
+
+**Editorial reserves** — *What About Bob?* · *The Lodge (2019)*.
+
+Require a cabin, forest getaway or isolated retreat that shapes the action. Match the relevant family-comedy, group-tension or woodland-survival strand.
+
+#### The Extra Hour
+
+**When** — Friday 16:00 before the autumn clock change through the Sunday of the change.
+
+**Opening eight** — *The Lord of the Rings: The Fellowship of the Ring* · *Dune: Part Two* · *Titanic* · *Wicked (2024)* · *Interstellar* · *Drive My Car* · *The Godfather* · *Avatar: The Way of Water*.
+
+**Editorial reserves** — *Oppenheimer* · *Malcolm X (1992)*.
+
+Verify at least 150 minutes for the available feature edition and match an epic-scale story, ensemble or spectacle. Advertise a named longer cut only when the card can resolve that edition. [Dune: Part Two classification](https://www.classification.gov.au/titles/dune-part-two) · [Drive My Car](https://www.janusfilms.com/films/2040)
 
 ### Late autumn, Christmas and pop-ups
 
-| English shelf | When it runs | Starting lineup | How future releases earn a place |
-|---|---|---|---|
-| Dinner Is Served | Wednesday through Sunday around US Thanksgiving, the fourth Thursday of November | *Planes, Trains and Automobiles*, the *Friends* episode *The One with All the Thanksgivings*, *Thanksgiving* (2023) for a horror-eligible profile | Favor Thanksgiving travel, family gatherings and verified holiday episodes. A restaurant or cooking competition alone is too broad. |
-| Christmas Favorites | From the earlier of December 1 and the first Sunday of Advent through December 26. The first Sunday of Advent falls between November 27 and December 3 | *Home Alone*, *The Muppet Christmas Carol*, *Klaus*, *The Julekalender* | Combine explicit Christmas plots, Danish Advent series and named specials. Review disputed traditions such as *Die Hard* as individual titles. Rotate animation, comedy, romance and one evening's episode without removing the household's best-loved anchors. |
-| Until Sunrise | 18:00 on the local date of the December solstice to 06:00 the next day | *After Hours*, *Collateral*, *Game Night* | The principal action takes place across one night. A new real-time drama or self-contained overnight episode can qualify on confirmed narrative duration. Darkness on screen is insufficient. |
-| One Series Before New Year | December 27–31 | *Over the Garden Wall*, *The Queen's Gambit*, *Chernobyl* | Require a completed limited series or a complete standalone season with verified total runtime. Aim for 1–8 hours and rank shorter options higher on December 30–31. A newly released finale can make a series eligible that night. |
-| Unlucky Friday | Each Friday the 13th, 00:00 to the next midnight | *Friday the 13th* (1980), *Final Destination*, *Tucker & Dale vs. Evil* | Mix the signature slasher with stories about curses, fatal coincidences or spectacular bad luck. A qualifying new horror comedy can displace a repeat from the same franchise. |
+#### Dinner Is Served
 
-### Calendar ownership and collisions
+**When** — Wednesday through Sunday around US Thanksgiving, the fourth Thursday of November.
+
+**Opening eight** — *Planes, Trains and Automobiles* · *Pieces of April* · *Home for the Holidays (1995)* · *Free Birds* · *Thanksgiving (2023)* · *What's Cooking? (2000)* · *The Ice Storm* · *The Humans (2021)*.
+
+**Editorial reserves** — *Krisha (2015)* · *Son in Law*.
+
+Thanksgiving changes the journey, reunion or gathering. A Thanksgiving horror film can qualify through its holiday premise. A restaurant, a turkey or a meal alone is insufficient. [The Humans](https://a24films.com/films/the-humans) · [Krisha](https://a24films.com/films/krisha)
+
+#### Christmas Favorites
+
+**When** — From the earlier of December 1 and the first Sunday of Advent through December 26. The first Sunday of Advent falls between November 27 and December 3.
+
+**Opening eight** — *Home Alone* · *Klaus* · *Elf* · *The Muppet Christmas Carol* · *The Holiday* · *Arthur Christmas* · *The Santa Clause* · *The Julekalender (1991, Danish whole series)*.
+
+**Editorial reserves** — *The Christmas Chronicles* · *The Polar Express*.
+
+Christmas or Advent must drive the story or be a documented household tradition. Balance family reunions, holiday romance, Christmas fantasy and comedy. A December premiere without a holiday premise stays out.
+
+#### Until Sunrise
+
+**When** — 18:00 on the local date of the December solstice to 06:00 the next day.
+
+**Opening eight** — *After Hours* · *Collateral* · *Game Night* · *The Warriors (1979)* · *Adventures in Babysitting (1987)* · *Victoria (2015)* · *Ready or Not (2019)* · *Bodies Bodies Bodies*.
+
+**Editorial reserves** — *Good Time (2017)* · *Date Night*.
+
+The principal action spans one night. Use the overnight pursuit, party, crime or first-date structure of a reference. Night photography alone is insufficient.
+
+#### One Last Movie Before New Year
+
+**When** — December 27–31.
+
+**Opening eight** — *When Harry Met Sally...* · *The Apartment (1960)* · *Ghostbusters II* · *Strange Days (1995)* · *Last Holiday (2006)* · *New Year's Eve (2011)* · *The Poseidon Adventure (1972)* · *Y2K (2024)*.
+
+**Editorial reserves** — *The Hudsucker Proxy* · *200 Cigarettes*.
+
+New Year's Eve, midnight or the turn of the year changes the story or provides its decisive scene. Alternate celebration, romance and countdown thrillers. A general late-December release is too broad. [Y2K](https://a24films.com/films/y2k)
+
+#### Unlucky Friday
+
+**When** — Each Friday the 13th, 00:00 to the next midnight.
+
+**Opening eight** — *Friday the 13th (1980)* · *Final Destination* · *Tucker & Dale vs. Evil* · *Drag Me to Hell* · *The Ring (2002)* · *It Follows* · *Happy Death Day* · *Smile (2022)*.
+
+**Editorial reserves** — *Wish Upon* · *The Grudge (2004)*.
+
+Require a Friday-the-13th story, curse, fatal coincidence or exceptionally bad luck that drives the plot. Vary slashers, supernatural rules and dark comedy. A scary poster alone is too weak.
+
+## Calendar ownership and collisions
 
 Compute Easter and its offsets for each Gregorian year. Use the Copenhagen time-zone database for actual clock-change weekends. Apply the household school calendar by school year when configured, including its first day back. Take the first and last school weekdays of a full break and include the adjacent weekends once. The fallback weeks are product defaults. School dates vary even within a municipality. Store organizer-announced Oscar and Eurovision dates with their year, host zone and source. Cache the astronomical December solstice and convert to local date. Omit an unconfirmed event until its date is known. [Fastelavn](https://www.folkekirken.dk/aarets-hoejtider/fastelavn) · [Danish clock changes](https://www.borger.dk/miljoe-og-energi/Energi/Sommertid) · [Example school calendar](https://www.kk.dk/borger/dagtilbud-og-skole/skole-og-fritid/vejledende-ferieplan-for-skoleaaret-i-koebenhavns-kommune) · [Solstice data](https://aa.usno.navy.mil/data/Earth_Seasons)
 
@@ -64,45 +318,16 @@ Select one eligible shelf. First protect Easter Sunday and Monday, June 23, July
 
 Two real collision tests fall in 2027. Protect Easter Sunday on March 28 over *Under 90 Minutes* and Halloween on October 31 over *The Extra Hour*. *Twelve Points!* runs May 11–16 inclusive, with its final on May 15. The March 14 US Oscar ceremony gives a March 12–15 Danish shelf. [Danish holiday dates](https://www.visitdenmark.dk/danmark/explore/helligdage-i-danmark-gdk1101954) · [Danish clock changes](https://www.borger.dk/miljoe-og-energi/Energi/Sommertid) · [Eurovision organizer](https://www.eurovision.com/newsroom/frequently-asked-questions/faqs-burgas-2027/) · [Oscar broadcaster](https://abc.com/news/555def93-aaa1-481a-b981-61865c6724ba/category/1138628)
 
-## Building a shelf worth returning to
+## Catalog refresh and implementation
 
-For a full shelf, aim for **12 distinct cards**. Start with four returning favorites, three recent releases, three discoveries and two flexible spots for an episode, special, season or another strong film. Assign a title to one slot only. Among the first four, aim for a recognizable classic, a later favorite, a new release and a different format when qualified material exists. For broad themes aim for at least two films and two TV choices. The Oscar shelf is film-only and the year-end shelf is series-only.
-
-Choose anchors by title, edition and reason. Use two starting pools for the target audience. One contains films and shows many millennials grew up with in the 1980s through early 2000s. The other covers late-2000s and 2010s favorites and newer work that has already earned repeat viewings among Gen Z. An editor can include earlier cross-generational favorites such as *Jaws*. A household can love both *Home Alone* and *Klaus*. Use these pools to commission a varied lineup, without inferring anyone's age or treating release year as evidence of affection.
-
-A **recent release** is an eligible film, season, episode or special first released in its relevant form within the past 18 months. Favor at least one from the last 90 days when available. A newly aired Christmas episode of a 15-year-old show qualifies on its own air date. A poster change, reissue or new season number alone cannot refresh the parent series. A discovery can be an overlooked older title. Favor unseen discoveries and new releases. Watched anchors may return for a new annual occasion. Downrank a watch earlier in the same window when an equally good alternative exists. If the existing history establishes only that a series was watched, treat the exact episode's watch status as unknown.
-
-**Selection order.** First apply profile exclusions and applicable content restrictions, verified target identity, release status and theme evidence. Rank eligible candidates within each pool by strength of fit, then the pool's purpose (familiarity, freshness or discovery), followed by profile affinity and variety. Use popularity or votes only to break close ties. A low vote count on opening weekend is normal. Keep two reviewed anchors stable over a long window, rotate at most three ordinary cards per week, and admit a newly qualified strong release in a recent slot on the next successful daily refresh. For one-night events select a stable lineup for the night. Restrictions, withdrawn evidence and wrong targets take effect immediately.
-
-**Quality floor.** Cap a broad shelf at two items per franchise and one card per series, including seasons and episodes. Franchise-specific themes can override the franchise cap. Use the strongest target for a given story. If a pool is thin, borrow from the other eligible pools. Publish a shorter shelf with at least four strong cards. Below four, try the next active theme or hide the shelf. Never fill an Earth Day shelf with an unrelated hit to reach twelve. Older favorites can carry a shelf through a quiet release year.
-
-## How new titles get in automatically
-
-1. **Store a small, editable definition for each theme.** Include calendar rules, English copy and accent, target formats, positive and negative examples, source-specific keyword or collection IDs, reviewed anchors and exclusions. Give every include/exclude override an identity, scope and short reason. An exact editorial exclusion wins over automatic matches. A verified include can settle thematic fit while normal release and profile rules still apply.
-2. **Find candidates continuously.** Extend the companion catalog's scheduled refresh. Review upcoming and active themes over a rolling 45-day horizon. Each night take new film releases, series premieres and newly aired episodes or specials, with a seven-day overlap since the last successful cursor. Query thematic keywords and dated release windows as well as catalog additions. Track relevant continuing series and their aired seasons. Use TV air-date discovery to find new seasons of older or untracked shows, then request episode metadata. Include shows that surfaced by air date even if the parent lacks the seasonal keyword. Limit work per run and resume paging from a saved cursor. A weekly, paged 18-month reconciliation picks up late tagging, missed imports and new shows outside the watchlist. Keep verified candidates for next year's recurrence. [TMDB movie discovery](https://developer.themoviedb.org/reference/discover-movie) · [TV discovery](https://developer.themoviedb.org/reference/discover-tv) · [Season and episode listings](https://developer.themoviedb.org/reference/tv-season-details) · [Tracking changes](https://developer.themoviedb.org/docs/tracking-content-changes)
-3. **Prove the match at the card's own level.** One decisive fact can suffice, such as a reviewed target ID, a verified franchise, a measured runtime for a runtime shelf, or an official Oscar nomination with winner known. For a thematic auto-match require a strong theme-specific signal, usually a curated keyword, and corroborating evidence, such as an independent plot detail or a distributor's episode description. Normalize spelling and distinguish remakes. A release month, popularity, a word in a title, or a generic genre can retrieve candidates but cannot admit one alone. Two copies of one synopsis count as one source of evidence. Ambiguous cases await editorial review while clear matches publish automatically. Record the signals and a short reason for every decision. [TMDB series keywords](https://developer.themoviedb.org/reference/tv-series-keywords) · [Official Oscar results](https://awardsdatabase.oscars.org/)
-4. **Verify the item the viewer will open.** Resolve movie or series IDs through existing IMDb/TMDB mappings. Key a season by parent and season, and an episode by parent, season and episode, including numbered specials where the sources agree. Require artwork, usable title metadata and a resolvable details target. Use reliable home-release or air dates for the selected market and known profile-accessible availability where supplied. A future listing, theatrical-only date, trailer, US subscription flag or unknown release date cannot certify a new home release in Denmark. Keep unverified new items pending, retry on later imports, and use existing source selection at play time. Keep the content language independent of the English interface.
-5. **Publish atomically.** Store canonical IDs, observed premiere and availability evidence, theme proof, editorial status and timestamps separately from per-profile rankings. Key each output by profile, occurrence, policy revision, source generation and eligibility/history revision. Separate calendar evaluation from nightly imports. Send validity bounds to the client and re-evaluate at Home entry, resume and the next boundary. A failed source refresh may reuse verified items only within their valid window. Retry partial imports without duplicating a card or advancing its cursor prematurely. When enhanced metadata access is unavailable, serve verified cached matches and anchors, and report degraded freshness.
-
-**Worked example.** During December, *Home Alone* remains a returning favorite and *Klaus* can occupy the later-classic spot. A hypothetical new comedy has an official description about two siblings trying to get home for Christmas, a Christmas keyword and a confirmed December 12 home release. On the first successful overnight refresh after release and evidence arrival it can take a recent slot with few votes. A December 12 action movie with fireworks and no Christmas story stays out. A sitcom with one qualifying Christmas episode contributes that episode only. If the correct episode or its date cannot be resolved, it stays pending. These decisions can all be replayed with fixed inputs.
-
-**Editorial upkeep.** Four weeks before a major window, preview its first screenful, both anchor pools, qualified new releases and borderline candidates. A clear match can publish without anyone opening this preview. Keep a compact record of rejected near-misses and recurring mistakes. After the season, promote a discovery to a returning favorite only when it deserves a place next year. A strong seasonal fit, repeat watches across annual windows or the household explicitly calling it a tradition are better reasons than raw popularity. An editorial change applies on the next publication without an Android release.
-
-## How this fits the existing implementation
-
-- The companion service already builds mixed movie and series Home catalogs. Reuse its profile authorization, ID resolution and poster handling. The shared IMDb index and US streaming feeds can supply candidates. Its Discover text search matches titles, aliases and cast. Add a separate source of theme and episode evidence. Android Collections already knows how to query TMDB keywords, so the server can share that query vocabulary. Keep one authoritative seasonal result across clients. [Discovery service](../server/nuvio-discovery/discovery.py) · [Shared title index](../server/media-catalog/imdb_index.py) · [TMDB collection resolver](../app/src/main/java/com/nuvio/tv/core/tmdb/TmdbCollectionSourceResolver.kt)
-- Extend Home with an optional typed target for a season or episode. The current card click passes a title ID and type. The existing details route already knows how to focus a season or episode. Only advertise precise cards to clients that support this contract. Older clients can receive a valid title-level selection or omit the precise-only item. Never label a series card as an episode if selecting it opens the series root. [Home navigation](../app/src/main/java/com/nuvio/tv/ui/navigation/NuvioNavHost.kt) · [Profile history](../app/src/main/java/com/nuvio/tv/data/repository/HouseholdRecommendations.kt)
-- Integrate the new stable row with automatic and saved Home ordering. Unknown catalogs can otherwise be appended to the end of a saved layout. Keep user-hidden rows hidden and preserve focus by stable target ID across refreshes. [Home catalog ordering](../app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelCatalogUtils.kt)
+- Extend the companion discovery service that already builds profile Home rows. Reuse its movie/series title cards, ID aliases, poster handling and related-title lookups. Persist editorial reference IDs and traits, former discovery IDs with their original evidence, per-profile viewing signals, current membership, presentation order and overflow candidates separately. Removing, watching or reordering a card leaves its theme evidence available after restart. The shared title index and existing US availability feeds can suggest candidates. Verify a Danish home release or other known availability for the selected market before treating a new title as ready. A cinema date, trailer or US flag alone leaves the candidate pending. [Discovery service](../server/nuvio-discovery/discovery.py) · [Shared index](../server/media-catalog/imdb_index.py) · [TMDB collection queries](../app/src/main/java/com/nuvio/tv/core/tmdb/TmdbCollectionSourceResolver.kt)
+- Nightly, refresh active themes and the next 45 days. Discover new movies by date as well as relevant keywords, fetch missing details and resolve IDs. For a verified announcement landing inside a short event, also schedule an availability check during that event and retry before the final viewing evening. For example, Lucasfilm announced *The Hero Awakens* for May 4, 2027. It directly documents *A New Hope*. It can earn a dynamic May the Fourth place when the regional release and usable film identity are confirmed inside that window. Use a seven-day overlap on incremental updates and reconcile the last 18 months weekly for late metadata. Retry bounded pages and advance cursors only after their records are durable. New episodes, new seasons and reissues of existing movies do not receive a fresh-film date. [Movie discovery](https://developer.themoviedb.org/reference/discover-movie) · [Related movies](https://developer.themoviedb.org/reference/movie-recommendations) · [Tracking changes](https://developer.themoviedb.org/docs/tracking-content-changes) · [Lucasfilm announcement](https://www.starwars.com/news/star-wars-the-hero-awakens)
+- Process watches separately from provider ingestion. Keep profile identity, theme occurrence, editorial revision, catalog generation and history revision in the publication key. The existing Android session sends only its last 100 distinct watched titles and collapses episodes to their parent. Merge confirmed history with an authoritative profile snapshot or title-level checks for proposed cards. A title missing from a truncated update has unknown status. Persist confirmed watched IDs and consume explicit corrections. For the two series, use a series-in-progress signal from the existing progress state. Maintain the existing authorized profile origin. [Android profile sync](../app/src/main/java/com/nuvio/tv/data/repository/HouseholdRecommendations.kt)
+- Publish a complete generation atomically and discard a stale calculation if another device advances the history revision. Use one stable shelf identity under both automatic and manual Home order, with normal title navigation. Re-evaluate validity on Home entry, resume and the next calendar boundary. [Home row ordering](../app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelCatalogUtils.kt) · [Home navigation](../app/src/main/java/com/nuvio/tv/ui/navigation/NuvioNavHost.kt)
 
 ## Rollout and acceptance
 
-1. **Pilot Christmas end to end.** Start with movie and whole-series cards, the two editorial anchor pools, automatic discovery of fresh films and series, and the local date gate. Preview the first four posters and inspect the evidence behind each. Ship only after a simulated newly released, low-vote title enters without editing the theme.
-2. **Add precise TV targets and moving dates.** Validate episode and season navigation on a TV, then enable Easter, Midsummer, Fourth of July and Halloween. Add a verified new special to an old series in the test data. Check click, Back, focus and progress against the exact installment.
-3. **Expand the calendar.** Open the other themes as their reviewed content reaches the quality floor. Add the organizer-date and school-year overrides and a full-year preview. Preview each theme with a returning profile and an empty profile before its first public window.
-
-Acceptance checks for the implementation:
-
-- Freeze time immediately before, at and after a local boundary. Cover both 2027 clock changes, protected holiday collisions, December into January, February in a leap year, an absent event date and an overridden school break. A dormant TV wakes to the current shelf.
-- Replay a release moving from announced to released, a late keyword, a delayed season finale and a provider outage. The right item appears by the next successful daily refresh after the evidence is available. A retry, alternate ID or corrected release date cannot create duplicates or keep a withdrawn item eligible.
-- Compare a classic watched last year, a new title with few votes, a blockbuster with only a matching release month, and an episode of a series already watched. Check the expected decision and reason for each. Confirm English labels, format variety and the appropriate short-shelf fallback.
-- Exercise automatic and manual row order, hidden shelf, duplicate franchise, profile change, offline expiry and legacy clients. Verify on TV that the right series installment receives focus, Back restores the originating poster, and opening details leaves watch progress intact.
+1. **Pilot Christmas.** With an empty profile, show the eight specified Christmas titles and eight distinct dynamic movies. Give a hypothetical qualifying low-vote Christmas movie a confirmed home release mid-window and verify its admission by the next successful daily import. A December action premiere without a Christmas story must fail even if its cast overlaps with a seed. Build one fixture with a new discovery ranked first and another with an editorial favorite first. Both must contain exactly eight of each type without fixed positions.
+2. **Prove refill on the TV.** Watch *Home Alone* and verify that *The Christmas Chronicles* takes its editorial place. Mark a dynamic movie watched on a second device and verify that a different unseen movie takes only its dynamic place. Start *The Julekalender* and verify that the series remains in Continue Watching while a film takes its seasonal place. After *Home Alone* leaves, admit a later movie whose only qualifying reference is *Home Alone*. Complete and remove a dynamic discovery, restart the service, then find a related film through that former discovery. Assert the original editorial link and watch affinity separately, including a negative case where the new film has drifted off theme. Opening details alone must leave all sixteen posters intact. Repeat events, undo a watch, switch profiles and retry with the provider offline.
+3. **Test every theme before activation.** Resolve eight reference IDs and two editorial reserves, check unique catalog IDs, and generate sixteen eligible cards for empty and returning profiles. Inspect the reason and matched reference for each dynamic pick. Reject episode/season targets, parent shows admitted for one installment, and duplicates across IMDb/TMDB IDs. Exercise exhausted reserves, sparse catalogs, a profile filter, and the movie-only Oscar and runtime shelves. A shortage must advance to another complete in-window theme or hide the row.
+4. **Preview the calendar.** Test Europe/Copenhagen midnight, both 2027 clock changes, Easter and Halloween collisions, school-date overrides and an unknown organizer date. Verify English copy, focus and Back navigation, hidden rows, new-release freshness, expired offline cache and film/whole-series details. Review catalog depth and false positives four weeks before each major window. A verified new movie requires no manual edit to join a running shelf.

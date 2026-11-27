@@ -7,7 +7,7 @@ mkbtv is an Android TV fork of [NuvioTV 1.1.0](https://github.com/NuvioMedia/Nuv
 - **Title details** open the cast directly and show related titles. **Play trailer** compares up to three catalog-linked YouTube videos and prefers playable 4K HDR, 4K SDR, 1440p and 1080p formats, with lower resolutions available for older uploads.
 - **Playback** supports an optional TorBox Home addon for finding and remembering a verified source for a film or episode.
 
-The [seasonal Home recommendations plan](docs/seasonal-home.md) sets out the proposed calendar, classic picks and rules for discovering new releases.
+The [seasonal Home recommendations plan](docs/seasonal-home.md) lists eight editorial picks per theme and explains how eight related films join the same shelf and refill as you watch.
 
 ## Build for Android TV
 

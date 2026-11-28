@@ -20,6 +20,7 @@ import re
 import random
 import secrets
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -28,6 +29,10 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from poster_art import PosterArt, TITLE_ID
+
+# Companion modules use the same provider and error types when this file is the CLI.
+if __name__ == '__main__':
+    sys.modules['discovery'] = sys.modules[__name__]
 
 STATE = Path(os.environ.get('MKBTV_STATE_DIR', Path.home() / '.local/share/mkbtv'))
 ROOT = Path(os.environ.get('MKBTV_DISCOVERY_DIR', STATE / 'discovery'))
@@ -357,7 +362,9 @@ def catalog(root, kind, catalog_id, genre=None, *, skip=0):
     if skip:
         suffix += ('&' if suffix else '/') + 'skip=' + str(skip)
     data = fetch(root, CATALOG + '/catalog/' + kind + '/' + catalog_id + suffix + '.json', 6 * 3600)
-    values = [safe_meta(row) for row in data.get('metas', [])]
+    if not isinstance(data, dict) or not isinstance(data.get('metas'), list):
+        raise DiscoveryError('CATALOG_RESPONSE_INVALID')
+    values = [safe_meta(row) for row in data['metas']]
     return [row for row in values if row]
 
 
@@ -527,6 +534,7 @@ def build_profile(root, document, excluded_ids=(), previous_rows=()):
     pool = trending_genre_pool(root, genre_pool, watched, trending)
     result = {'profile_id': document['profile_id'], 'updated_at': datetime.now(timezone.utc).isoformat(),
               'source_capture': document['capture_finished_at'], 'rows': rows, 'genre_pool': pool,
+              'recent_metas': available, 'for_you_starters': rows[0]['metas'],
               'summary': {'watched_distinct': len(keys), 'matched': len(available), 'seed_count': len(seed_metas),
                           'related_seed_count': len(rows) - 2, 'genre_count': min(3, len(pool)),
                           'genre_pool_count': len(pool), 'row_count': len(rows) + min(3, len(pool)),
@@ -547,12 +555,21 @@ def live_history(document, previous, session):
         current[key] = max(current.get(key, 0), row['at'])
     if session and session['session'] == previous.get('session'):
         cutoff = min(current.values()) if len(snapshot) >= 100 else 0
+        newer = {}
         for row in last_snapshot:
             key = (row['type'], row['id'])
             if row['at'] != live.get(key):
                 continue
-            if key in current or row['at'] > cutoff:
+            if key in current:
+                # The same visit can retry an older snapshot after a later episode completed.
+                if current[key] < row['at']:
+                    newer[key] = row['at']
+            elif row['at'] > cutoff:
                 live.pop(key)
+        if newer:
+            # Keep ownership of the newer local mark so a subsequent omission can still undo it.
+            snapshot = [dict(row, at=newer[(row['type'], row['id'])])
+                        if (row['type'], row['id']) in newer else row for row in snapshot]
     if session:
         for key, at in current.items():
             live[key] = max(live.get(key, 0), at)
@@ -573,35 +590,53 @@ def update_profile(root, document, previous, session, excluded):
                                 if entry.get('content_type') in ('tv', 'series')
                                 and isinstance(entry.get('position'), (int, float)) and entry['position'] > 0})
     session_id = session['session'] if session else previous.get('session')
-    new_session = session_id != previous.get('session')
-    if session and not history_changed and not previous.get('recommendations_pending') and previous.get('genre_source') == 'nuvio_trending':
-        if (not new_session and snapshot == previous.get('client_snapshot') and live == previous.get('live_watched')
+    pending = previous.get('recommendations_pending')
+    taste = previous.get('for_you', {})
+    unwatched = dict(previous.get('for_you_unwatched', {}))
+    for mark in (session or {}).get('seasonalUnwatched', []):
+        if mark['type'] == 'movie':
+            key = 'movie/' + mark['id']
+            unwatched[key] = max(unwatched.get(key, 0), mark['at'])
+    genre_visit = previous.get('genre_visit', previous.get('session'))
+    new_session = bool(session and session_id != genre_visit and session_id not in taste.get('visits', []))
+    if new_session:
+        genre_visit = session_id
+    if session and not history_changed and not pending and previous.get('genre_source') == 'nuvio_trending':
+        if (session_id == previous.get('session') and session_id in taste.get('visits', []) and not taste.get('pending')
+                and snapshot == previous.get('client_snapshot') and live == previous.get('live_watched')
                 and seasonal_history == previous.get('seasonal_history')
-                and seasonal_progress == previous.get('seasonal_progress')):
+                and seasonal_progress == previous.get('seasonal_progress')
+                and unwatched == previous.get('for_you_unwatched', {})):
             return previous
         data = dict(previous)
     else:
         try:
             data = build_profile(root, document, excluded, previous.get('rows', []))
+            pending = False
         except DiscoveryError:
             if not session or not previous.get('rows'):
                 raise
-            # The seasonal pool is already local. A failed remote recommendation lookup must
-            # not discard a valid watch or keep its old seasonal poster on Home.
-            return dict(previous, live_watched=live, client_snapshot=snapshot, session=session_id,
-                        seasonal_history=seasonal_history, seasonal_progress=seasonal_progress,
-                        recommendations_pending=True)
-    previous_genres = [r['name'] for r in previous.get('rows', []) if r['id'].startswith('genre-')]
-    pool = data['genre_pool']
-    rotation = f'{session_id or ""}/{signature}'
-    if new_session or history_changed or len(previous_genres) != min(3, len(pool)) or not set(previous_genres) <= pool.keys():
-        choose_genre_rows(data, previous, rotation)
+            # Accept watch feedback and use the prepared local pool during an upstream outage.
+            data = dict(previous)
+            pending = True
+    if pending:
+        data['recommendations_pending'] = True
     else:
-        set_genre_rows(data, previous_genres, rotation)
-    data.pop('recommendations_pending', None)
+        previous_genres = [r['name'] for r in previous.get('rows', []) if r['id'].startswith('genre-')]
+        pool = data['genre_pool']
+        rotation = f'{genre_visit or ""}/{signature}'
+        if new_session or history_changed or len(previous_genres) != min(3, len(pool)) or not set(previous_genres) <= pool.keys():
+            choose_genre_rows(data, previous, rotation)
+        else:
+            set_genre_rows(data, previous_genres, rotation)
+        data.pop('recommendations_pending', None)
+    data['for_you_unwatched'] = unwatched
+    from for_you import publish
+    publish(root, document, previous, data, session, excluded, signature, seasonal_progress)
     changed = data['rows'] != previous.get('rows') or history_changed
     data.update(live_watched=live, client_snapshot=snapshot, history_signature=signature, session=session_id,
-                genre_source='nuvio_trending', seasonal_history=seasonal_history, seasonal_progress=seasonal_progress,
+                genre_source='nuvio_trending', genre_visit=genre_visit, seasonal_history=seasonal_history,
+                seasonal_progress=seasonal_progress,
                 exported_count=exported_count, source_capture=document['capture_finished_at'],
                 revision=previous.get('revision', 0) + int(changed))
     return data
@@ -836,6 +871,8 @@ def handler_for(root, history, public_origin=None):
             try:
                 current = json.loads((root / 'config.json').read_text())
                 status, value = response_for(root, current, self.path)
+                if status == 200 and urlsplit(self.path).path.endswith('/catalog/mixed/for-you.json'):
+                    self.add_posters(value)
             except (DiscoveryError, OSError, sqlite3.Error, ValueError, KeyError):
                 status, value = 503, {'error': 'catalog_unavailable'}
             self.reply(status, value)
@@ -860,13 +897,7 @@ def handler_for(root, history, public_origin=None):
                 return self.reply(400, invalid)
             if discover:
                 status, body = discover_response(root, int(profile), session)
-                # Artwork URLs use the operator's origin and contain no profile token.
-                host, port = self.server.server_address[:2]
-                base = (public_origin or f'http://{host}:{port}') + '/poster/'
-                for meta in body.get('metas', []):
-                    imdb = meta.get('imdb_id', '')
-                    if not meta.get('poster') and TITLE_ID.fullmatch(imdb):
-                        meta['poster'] = base + imdb + '.jpg'
+                self.add_posters(body)
                 return self.reply(status, body)
             if not valid_session(session):
                 return self.reply(400, invalid)
@@ -876,6 +907,15 @@ def handler_for(root, history, public_origin=None):
             except (OSError, DiscoveryError, sqlite3.Error, ValueError, KeyError):
                 return self.reply(503, {'error': 'catalog_unavailable'})
             self.reply(status, updated)
+
+        def add_posters(self, body):
+            # The fallback artwork route has no profile token.
+            host, port = self.server.server_address[:2]
+            base = (public_origin or f'http://{host}:{port}') + '/poster/'
+            for meta in body.get('metas', []):
+                imdb = meta.get('imdb_id') or meta.get('id', '')
+                if not meta.get('poster') and TITLE_ID.fullmatch(imdb):
+                    meta['poster'] = base + imdb + '.jpg'
 
         def reply(self, status, value):
             body = json.dumps(value, ensure_ascii=False).encode()
@@ -910,8 +950,9 @@ def serve(root, history=HISTORY):
     server = ThreadingHTTPServer((config['listen'], config['port']), handler_for(root, history, origin))
     from seasonal_jobs import worker
     stop = threading.Event()
-    background = threading.Thread(target=worker, args=(root, stop), name='seasonal-catalog', daemon=True)
-    background.start()
+    from for_you import worker as taste_worker
+    for name, run in [('seasonal-catalog', worker), ('for-you', taste_worker)]:
+        threading.Thread(target=run, args=(root, stop), name=name, daemon=True).start()
     try:
         server.serve_forever(poll_interval=1)
     finally:
@@ -921,17 +962,30 @@ def serve(root, history=HISTORY):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['refresh', 'serve', 'refresh-seasonal', 'seasonal-preview'])
+    parser.add_argument('action', choices=['refresh', 'serve', 'refresh-seasonal', 'seasonal-preview',
+                                           'refresh-for-you', 'for-you-preview'])
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--history', type=Path, default=HISTORY)
     parser.add_argument('--at', help='Aware ISO-8601 instant for seasonal-preview')
     parser.add_argument('--theme', help='Include public candidate evidence for this slug in seasonal-preview')
+    parser.add_argument('--profile', type=int, choices=range(1, 7), default=1, help='Profile for for-you-preview')
+    parser.add_argument('--visits', type=int, choices=range(1, 31), default=2, help='Number of visits to simulate')
+    parser.add_argument('--details', action='store_true', help='Include private per-card evidence in for-you-preview')
     args = parser.parse_args()
     try:
         if args.action == 'refresh':
             refresh(args.root, args.history)
         elif args.action == 'serve':
             serve(args.root, args.history)
+        elif args.action == 'refresh-for-you':
+            from for_you import prepare
+            result = prepare(args.root)
+            print(json.dumps(result))
+            if any(row.get('status') == 'retry' for row in result):
+                raise SystemExit(1)
+        elif args.action == 'for-you-preview':
+            from for_you import preview
+            print(json.dumps(preview(args.root, args.profile, args.visits, args.details)))
         elif args.action == 'refresh-seasonal':
             from seasonal_jobs import prepare
             print(json.dumps(prepare(args.root, all_themes=True)))

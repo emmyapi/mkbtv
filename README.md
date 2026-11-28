@@ -3,7 +3,7 @@
 mkbtv is an Android TV fork of [NuvioTV 1.1.0](https://github.com/NuvioMedia/NuvioTV/tree/1.1.0). It adds a Discover screen designed for the remote, title-based recommendations, and full-screen YouTube trailers.
 
 - **Discover** combines a title or actor with filters and sorting in one request. The optional catalog indexes IMDb metadata and US streaming availability. Posters load from their providers.
-- **Home** can show three **Because You Watched** rows with recommendations for individual titles. Three genre rows rotate among the most frequent genres in the last fifteen distinct titles and draw their posters from Trending.
+- **Home** can show three **Because You Watched** rows with recommendations for individual titles. Three genre rows rotate among the most frequent genres in the last fifteen distinct titles and draw their posters from Trending. The [For You implementation plan](server/README.md#long-term-for-you-implementation-plan) covers recommendations from the full watch history.
 - **Title details** open the cast directly and show related titles. **Play trailer** compares up to three catalog-linked YouTube videos and prefers playable 4K HDR, 4K SDR, 1440p and 1080p formats, with lower resolutions available for older uploads.
 - **Playback** supports an optional TorBox Home addon for finding and remembering a verified source for a film or episode.
 

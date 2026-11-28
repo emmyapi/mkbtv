@@ -36,6 +36,7 @@ CATALOG = 'https://catalog.nuvio.tv'
 CINEMETA = 'https://v3-cinemeta.strem.io'
 SIMKL = 'https://api.simkl.com'
 TMDB = 'https://www.themoviedb.org'
+MANIFEST_LAYOUT_REVISION = 1  # Clients cache Home rows by their combined layout and profile revision.
 TMDB_BASIS = 'TMDB title recommendations'
 SIMKL_BASIS = 'Simkl users_recommendations'
 ALLOWED = {'catalog.nuvio.tv', 'v3-cinemeta.strem.io', 'cinemeta-live.strem.io', 'cinemeta-catalogs.strem.io', 'api.simkl.com', 'www.themoviedb.org'}
@@ -694,12 +695,13 @@ def response_for(root, config, path, session=None):
         base, seasonal, info, version = profile_view(root, config, profile, session)
         if base is None:
             return 404, {'error': 'not_found'}
+        version += MANIFEST_LAYOUT_REVISION
         if parts[1] == 'manifest.json':
             result = manifest(base)
             if base.get('recommendations_pending'):
                 result['householdRetryAfterMs'] = 60000
             if seasonal:
-                result['catalogs'].insert(0, {'id': 'seasonal', 'type': 'mixed', 'name': seasonal['name']})
+                result['catalogs'].append({'id': 'seasonal', 'type': 'mixed', 'name': seasonal['name']})
             return 200, dict(result, **info, configVersion=version)
         return 200, {'metas': seasonal['metas'] if seasonal else [], 'configVersion': version,
                      'seasonalOccurrence': info.get('seasonalOccurrence'),

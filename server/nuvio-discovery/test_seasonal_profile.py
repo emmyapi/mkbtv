@@ -217,12 +217,15 @@ class SeasonalSelectionTests(unittest.TestCase):
         self.assertNotIn(self.original[0], self.ids(self.view()[1]))
 
     def test_http_payload_and_revision_agree(self):
+        self.base['rows'] = [{'id': 'for-you', 'name': 'For You'}, {'id': 'genre-1', 'name': 'Comedy'}]
+        self.save()
         # Exercise the real route, including the winner chosen by its current clock.
         with patch.object(seasonal, 'datetime', wraps=datetime) as clock:
             clock.now.return_value=instant(12,24)
             status, manifest=discovery.response_for(self.root,self.config,'/test/manifest.json')
             self.assertEqual(status,200)
-            self.assertEqual(manifest['catalogs'][0], {'id':'seasonal','type':'mixed','name':'Christmas Favorites'})
+            self.assertEqual([entry['id'] for entry in manifest['catalogs']], ['for-you', 'genre-1', 'seasonal'])
+            self.assertEqual(manifest['catalogs'][-1], {'id':'seasonal','type':'mixed','name':'Christmas Favorites'})
             _, row=discovery.response_for(self.root,self.config,'/test/catalog/mixed/seasonal.json')
             for field in ('seasonalOccurrence','seasonalValidUntil','configVersion'):
                 self.assertEqual(manifest[field],row[field])

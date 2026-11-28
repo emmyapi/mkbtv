@@ -62,7 +62,7 @@ Recommendation lookups send individual title IDs to metadata providers. Search m
 
 The Discovery server prepares the current calendar theme and the next 45 days of public movie data in the background. Keep the Python modules and `seasonal_themes.json` from the same revision together under `nuvio-discovery/`. All season calculations use the system time-zone database for Europe/Copenhagen. The worker stores provider data under the Discovery state directory. The existing profile token controls access to the lineup and viewing feedback.
 
-A fresh profile can see up to eight editorial choices and eight discoveries. The client uses the usual film or whole-series details screen and puts the combined row below **Continue Watching** by default. Watching a title refills its place from the same theme when a suitable replacement exists. A short row stays visible. An exhausted occurrence stays hidden for that profile until the calendar changes. New films can join an open occurrence on a successful catalog import.
+A fresh profile can see up to eight editorial choices and eight discoveries. The client uses the usual film or whole-series details screen and places the combined row at the bottom of Home by default. Watching a title refills its place from the same theme when a suitable replacement exists. A short row stays visible. An exhausted occurrence stays hidden for that profile until the calendar changes. New films can join an open occurrence on a successful catalog import.
 
 From the server directory, inspect the schedule without a TV, or advance a bounded batch of public-data preparation.
 

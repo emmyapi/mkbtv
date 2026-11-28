@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.gson.Gson
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.sync.library.LibrarySyncLocalStore
 import com.nuvio.tv.domain.model.LibraryDeltaApplyResult
 import com.nuvio.tv.domain.model.LibraryDeltaEvent
@@ -16,12 +17,16 @@ import com.nuvio.tv.domain.model.LibrarySnapshotApplyResult
 import com.nuvio.tv.domain.model.LibrarySyncKey
 import com.nuvio.tv.domain.model.LibrarySyncReducer
 import com.nuvio.tv.domain.model.LibrarySyncState
+import com.nuvio.tv.domain.model.LocalPlaylist
 import com.nuvio.tv.domain.model.SavedLibraryItem
+import com.nuvio.tv.domain.model.NativeLibraryIdentity
+import com.nuvio.tv.domain.model.nativeIdentity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,6 +38,7 @@ class LibraryPreferences @Inject constructor(
 ) : LibrarySyncLocalStore {
     private val gson = Gson()
     private val libraryItemsKey = stringSetPreferencesKey("library_items")
+    private val playlistsKey = stringPreferencesKey("native_playlists")
     private val sortOptionKey = stringPreferencesKey("library_sort_option")
     private val lastSelectedListKey = stringPreferencesKey("library_last_selected_list")
     private val lastSelectedTypeKey = stringPreferencesKey("library_last_selected_type")
@@ -57,6 +63,51 @@ class LibraryPreferences @Inject constructor(
                 preferences.toLibrarySyncState().items
             }
         }
+
+    val playlists: Flow<List<LocalPlaylist>> = profileManager.activeProfileId.flatMapLatest { profileId ->
+        store(profileId).data.map { it.readPlaylists() }
+    }
+
+    private fun Preferences.readPlaylists(): List<LocalPlaylist> =
+        this[playlistsKey]?.let { gson.fromJson(it, Array<LocalPlaylist>::class.java).toList() }.orEmpty()
+
+    suspend fun createPlaylist(name: String, profileId: Int): LocalPlaylist {
+        val title = name.trim().also { require(it.isNotEmpty()) { "Enter a playlist name" } }
+        val playlist = LocalPlaylist(LocalPlaylist.KEY_PREFIX + UUID.randomUUID().toString(), title)
+        store(profileId).edit { preferences ->
+            preferences[playlistsKey] = gson.toJson(preferences.readPlaylists() + playlist)
+        }
+        return playlist
+    }
+
+    suspend fun renamePlaylist(key: String, name: String, profileId: Int) {
+        val title = name.trim().also { require(it.isNotEmpty()) { "Enter a playlist name" } }
+        store(profileId).edit { preferences ->
+            val lists = preferences.readPlaylists()
+            require(lists.any { it.key == key }) { "Playlist no longer exists" }
+            preferences[playlistsKey] = gson.toJson(lists.map { if (it.key == key) it.copy(name = title) else it })
+        }
+    }
+
+    suspend fun reorderPlaylists(orderedKeys: List<String>, profileId: Int) {
+        store(profileId).edit { preferences ->
+            val lists = preferences.readPlaylists().associateBy { it.key }
+            require(orderedKeys.size == lists.size && orderedKeys.toSet() == lists.keys) {
+                "The playlists changed. Reopen the playlist manager and try again."
+            }
+            preferences[playlistsKey] = gson.toJson(orderedKeys.map(lists::getValue))
+        }
+    }
+
+    suspend fun deletePlaylist(key: String, profileId: Int) {
+        store(profileId).edit { preferences ->
+            val lists = preferences.readPlaylists()
+            require(lists.any { it.key == key }) { "Playlist no longer exists" }
+            preferences[playlistsKey] = gson.toJson(lists.filterNot { it.key == key })
+            val state = preferences.toLibrarySyncState()
+            preferences.writeLibrarySyncState(state.copy(items = state.items.mapNotNull { it.withoutPlaylist(key) }))
+        }
+    }
 
     suspend fun setSortOption(key: String) {
         store().edit { preferences ->
@@ -88,51 +139,44 @@ class LibraryPreferences @Inject constructor(
         }
     }
 
-    fun isInLibrary(itemId: String, itemType: String): Flow<Boolean> {
-        return libraryItems.map { items ->
-            items.any { item ->
-                item.id == itemId && item.type.equals(itemType, ignoreCase = true)
-            }
+    fun observeMembership(itemId: String, itemType: String, imdbId: String? = null, tmdbId: Int? = null): Flow<Set<String>> {
+        val identity = NativeLibraryIdentity(itemId, itemType, imdbId, tmdbId)
+        return libraryItems.map { items -> identity.find(items)?.memberships.orEmpty().keys }
+    }
+
+    suspend fun membershipSnapshot(
+        itemId: String, itemType: String, profileId: Int, imdbId: String? = null, tmdbId: Int? = null
+    ): Map<String, Boolean> {
+        val preferences = store(profileId).data.first()
+        val identity = NativeLibraryIdentity(itemId, itemType, imdbId, tmdbId)
+        val selected = identity.find(preferences.toLibrarySyncState().items)?.memberships.orEmpty()
+        return buildMap {
+            put(LOCAL_LIBRARY_LIST_KEY, LOCAL_LIBRARY_LIST_KEY in selected)
+            preferences.readPlaylists().forEach { put(it.key, it.key in selected) }
         }
     }
 
-    suspend fun containsItem(
-        itemId: String,
-        itemType: String,
-        profileId: Int = profileManager.activeProfileId.value
-    ): Boolean {
-        return getSyncState(profileId).items.any { item ->
-            item.id == itemId && item.type.equals(itemType, ignoreCase = true)
-        }
-    }
-
-    suspend fun addItem(
+    suspend fun editMemberships(
         item: SavedLibraryItem,
-        profileId: Int = profileManager.activeProfileId.value
-    ) {
+        profileId: Int,
+        changes: (Set<String>) -> Map<String, Boolean>
+    ): Boolean {
+        var syncNeeded = false
         store(profileId).edit { preferences ->
-            val updated = LibrarySyncReducer.upsertLocal(
-                state = preferences.toLibrarySyncState(),
-                item = item,
-                nowEpochMs = System.currentTimeMillis()
-            )
-            preferences.writeLibrarySyncState(updated)
+            val state = preferences.toLibrarySyncState()
+            val selected = item.nativeIdentity().find(state.items, forEdit = true)?.memberships.orEmpty().keys
+            val desired = changes(selected)
+            val listKeys = preferences.readPlaylists().map { it.key }.toSet() + LOCAL_LIBRARY_LIST_KEY
+            require(desired.none { (key, enabled) -> enabled && key !in listKeys }) { "Playlist no longer exists" }
+            val updated = LibrarySyncReducer.changeMemberships(state, item, desired, System.currentTimeMillis())
+            if (updated != state) preferences.writeLibrarySyncState(updated)
+            syncNeeded = updated.mutationRevision != state.mutationRevision
         }
+        return syncNeeded
     }
 
-    suspend fun removeItem(
-        itemId: String,
-        itemType: String,
-        profileId: Int = profileManager.activeProfileId.value
-    ) {
-        store(profileId).edit { preferences ->
-            val updated = LibrarySyncReducer.deleteLocal(
-                state = preferences.toLibrarySyncState(),
-                contentId = itemId,
-                contentType = itemType
-            )
-            preferences.writeLibrarySyncState(updated)
-        }
+    suspend fun addItem(item: SavedLibraryItem, profileId: Int = profileManager.activeProfileId.value) {
+        editMemberships(item, profileId) { mapOf(LOCAL_LIBRARY_LIST_KEY to true) }
     }
 
     suspend fun getAllItems(

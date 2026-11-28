@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS movie_release (
 CREATE INDEX IF NOT EXISTS release_theatrical ON movie_release(theatrical_date, home_date);
 CREATE INDEX IF NOT EXISTS release_home ON movie_release(home_date);
 CREATE TABLE IF NOT EXISTS movie_release_check (content_id TEXT PRIMARY KEY, next_check INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS movie_release_revision (id INTEGER PRIMARY KEY CHECK(id=1), revision TEXT NOT NULL);
+INSERT OR IGNORE INTO movie_release_revision VALUES (1, hex(randomblob(16)));
 """
 
 
@@ -233,6 +235,7 @@ class MovieReleases:
                                       imdb_id=excluded.imdb_id, theatrical_date=excluded.theatrical_date,
                                       home_date=excluded.home_date, age_rating=excluded.age_rating""",
                                    (number, imdb, theatrical, home, age_rating))
+                        db.execute('UPDATE movie_release_revision SET revision=hex(randomblob(16)) WHERE id=1')
                     today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
                     ttl = 30 * DAY if home and home <= today else DAY // 4
                     aliases = ['tmdb:' + number] + ([imdb] if imdb else [])

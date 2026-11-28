@@ -6,6 +6,7 @@ import com.nuvio.tv.data.mapper.toDomainOrNull
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.LibraryEntry
 import com.nuvio.tv.domain.model.MovieDistributionDates
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -140,25 +141,28 @@ internal data class MovieReleaseRequest(val ids: List<String>)
 internal data class MovieReleaseReply(val releases: Map<String, MovieRelease>, val pending: Boolean)
 
 private interface PrivateDiscoverEndpoint {
+    @POST suspend fun libraryFacts(@Url url: HttpUrl, @Body request: DiscoverLibraryRequest): Response<DiscoverLibraryReply>
     @POST suspend fun releases(@Url url: HttpUrl, @Body request: MovieReleaseRequest): Response<MovieReleaseReply>
     @POST suspend fun page(@Url url: HttpUrl, @Body request: DiscoverRequestBody): Response<DiscoverReply>
 }
 
 private val snapshotPattern = Regex("[A-Za-z0-9._-]{1,256}")
 
-internal fun DiscoverSearchRequest.wire(year: Int): DiscoverRequestBody {
-    val span: Pair<Int?, Int?> = when (period) {
-        "any" -> null to null
-        "this_year" -> year to year
-        "last_five_years" -> year - 4 to year
-        "before_1980" -> null to 1979
-        "before_2010" -> null to 2009
-        "decade_1980", "decade_1990", "decade_2000", "decade_2010", "decade_2020" -> {
-            val firstYear = period.takeLast(4).toInt()
-            firstYear to firstYear + 9
-        }
-        else -> throw IOException("Unknown Discover release period")
+internal fun discoverYearBounds(period: String, year: Int): Pair<Int?, Int?> = when (period) {
+    "any" -> null to null
+    "this_year" -> year to year
+    "last_five_years" -> year - 4 to year
+    "before_1980" -> null to 1979
+    "before_2010" -> null to 2009
+    "decade_1980", "decade_1990", "decade_2000", "decade_2010", "decade_2020" -> {
+        val firstYear = period.takeLast(4).toInt()
+        firstYear to firstYear + 9
     }
+    else -> throw IOException("Unknown Discover release period")
+}
+
+internal fun DiscoverSearchRequest.wire(year: Int): DiscoverRequestBody {
+    val span = discoverYearBounds(period, year)
     val snapshot = cursor?.substringBefore(':')
     val offset = if (cursor == null) 0 else cursor.substringAfter(':', "").toIntOrNull()
         ?.takeIf { it > 0 && snapshot != null && snapshotPattern.matches(snapshot) }
@@ -246,6 +250,27 @@ class DiscoverSearchApi @Inject constructor(
         }
         verifyProfile(profile)
         return response.body() ?: throw IOException("Empty movie release response")
+    }
+
+    suspend fun libraryFacts(
+        profile: Int, entries: List<LibraryEntry>, keyword: String = "",
+        watchedMovies: Set<String> = emptySet(), watchedSeries: Set<String> = emptySet()
+    ): DiscoverLibrarySnapshot {
+        suspend fun readSnapshot() = collectDiscoverLibraryFacts(entries, keyword, watchedMovies, watchedSeries) { request ->
+            val url = privateDiscoverUrl(profile).newBuilder().setPathSegment(1, "library-facts.json").build()
+            val response = endpoint.libraryFacts(url, request)
+            if (!response.isSuccessful) {
+                val failure = response.errorBody().discoverFailure(moshi)
+                throw DiscoverServiceException(failure)
+            }
+            verifyProfile(profile)
+            response.body() ?: throw IOException("Empty Discover library response")
+        }
+        return try {
+            readSnapshot()
+        } catch (_: DiscoverSnapshotExpiredException) {
+            readSnapshot()
+        }
     }
 
     suspend fun search(request: DiscoverSearchRequest): DiscoverSearchPage {

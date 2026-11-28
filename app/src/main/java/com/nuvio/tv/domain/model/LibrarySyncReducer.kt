@@ -1,5 +1,6 @@
 package com.nuvio.tv.domain.model
 
+import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.data.mediaserver.ServerItemRef
 
 object LibrarySyncReducer {
@@ -8,9 +9,11 @@ object LibrarySyncReducer {
         val pendingUpserts = state.pendingUpsertKeys.toKeyMap()
         val pendingDeletes = state.pendingDeleteKeys.toKeyMap()
 
-        pendingUpserts.keys.retainAll(items.keys)
+        pendingUpserts.keys.removeAll { identity ->
+            LOCAL_LIBRARY_LIST_KEY !in items[identity]?.memberships.orEmpty()
+        }
         pendingUpserts.keys.forEach(pendingDeletes::remove)
-        pendingDeletes.keys.forEach(items::remove)
+        pendingDeletes.keys.forEach { identity -> items.removeWatchLater(identity) }
 
         return state.copy(
             items = items.values.toList(),
@@ -25,31 +28,9 @@ object LibrarySyncReducer {
         state: LibrarySyncState,
         item: SavedLibraryItem,
         nowEpochMs: Long
-    ): LibrarySyncState {
-        val current = sanitize(state)
-        if (item.id.isBlank() || item.type.isBlank()) return current
-
-        val storedItem = if (item.addedAt == 0L) {
-            item.copy(addedAt = nowEpochMs)
-        } else {
-            item
-        }
-        val identity = librarySyncIdentity(storedItem.id, storedItem.type)
-        val items = current.items.toItemMap()
-        val pendingUpserts = current.pendingUpsertKeys.toKeyMap()
-        val pendingDeletes = current.pendingDeleteKeys.toKeyMap()
-
-        items[identity] = storedItem
-        pendingUpserts[identity] = storedItem.toLibrarySyncKey()
-        pendingDeletes.remove(identity)
-
-        return current.copy(
-            items = items.values.toList(),
-            pendingUpsertKeys = pendingUpserts.values.toList(),
-            pendingDeleteKeys = pendingDeletes.values.toList(),
-            mutationRevision = current.mutationRevision + 1L
-        )
-    }
+    ): LibrarySyncState = changeMemberships(
+        state, item, mapOf(LOCAL_LIBRARY_LIST_KEY to true), nowEpochMs
+    )
 
     fun deleteLocal(
         state: LibrarySyncState,
@@ -57,15 +38,59 @@ object LibrarySyncReducer {
         contentType: String
     ): LibrarySyncState {
         val current = sanitize(state)
-        val identity = librarySyncIdentity(contentId, contentType)
+        val item = NativeLibraryIdentity(contentId, contentType).find(current.items, forEdit = true) ?: return current
+        return changeMemberships(current, item, mapOf(LOCAL_LIBRARY_LIST_KEY to false), 0L)
+    }
+
+    fun changeMemberships(
+        state: LibrarySyncState,
+        item: SavedLibraryItem,
+        desired: Map<String, Boolean>,
+        nowEpochMs: Long
+    ): LibrarySyncState {
+        val current = sanitize(state)
+        if (item.id.isBlank() || item.type.isBlank()) return current
+        val requested = item.nativeIdentity()
+        val existing = requested.find(current.items, forEdit = true)
+        val stored = existing ?: item
+        val identity = librarySyncIdentity(stored.id, stored.type)
         val items = current.items.toItemMap()
-        val removed = items.remove(identity) ?: return current
+        val before = existing?.memberships.orEmpty()
+        val after = before.toMutableMap()
+        val addedAt = existing?.addedAt ?: item.addedAt.takeIf { it > 0 } ?: nowEpochMs
+        val membershipTime = if (existing == null) addedAt else nowEpochMs
+        desired.forEach { (key, selected) ->
+            if (selected) after.putIfAbsent(key, membershipTime) else after.remove(key)
+        }
+        if (after.isEmpty()) {
+            if (existing == null) return current
+            items.remove(identity)
+        } else {
+            val updated = stored.copy(
+                addedAt = addedAt,
+                playlistAddedAt = after,
+                imdbId = existing?.imdbId ?: requested.imdb,
+                tmdbId = existing?.tmdbId ?: requested.tmdb,
+                movieDistributionDates = item.movieDistributionDates?.merge(existing?.movieDistributionDates)
+                    ?: existing?.movieDistributionDates
+            )
+            if (updated == existing) return current
+            items[identity] = updated
+        }
+
+        // The upstream API owns one flat Watch Later row. Custom-only edits stay in this profile.
+        if ((LOCAL_LIBRARY_LIST_KEY in before) == (LOCAL_LIBRARY_LIST_KEY in after)) {
+            return current.copy(items = items.values.toList())
+        }
         val pendingUpserts = current.pendingUpsertKeys.toKeyMap()
         val pendingDeletes = current.pendingDeleteKeys.toKeyMap()
-
-        pendingUpserts.remove(identity)
-        pendingDeletes[identity] = removed.toLibrarySyncKey()
-
+        if (LOCAL_LIBRARY_LIST_KEY in after) {
+            pendingDeletes.remove(identity)
+            pendingUpserts[identity] = stored.toLibrarySyncKey()
+        } else {
+            pendingUpserts.remove(identity)
+            pendingDeletes[identity] = stored.toLibrarySyncKey()
+        }
         return current.copy(
             items = items.values.toList(),
             pendingUpsertKeys = pendingUpserts.values.toList(),
@@ -81,7 +106,7 @@ object LibrarySyncReducer {
         val beforeUpserts = pendingUpserts.toMap()
         val beforeDeletes = pendingDeletes.toMap()
 
-        current.items.forEach { item ->
+        current.items.filter { LOCAL_LIBRARY_LIST_KEY in it.memberships }.forEach { item ->
             val identity = librarySyncIdentity(item.id, item.type)
             pendingUpserts[identity] = item.toLibrarySyncKey()
             pendingDeletes.remove(identity)
@@ -109,7 +134,7 @@ object LibrarySyncReducer {
         remoteItems.forEach { remoteItem ->
             if (remoteItem.id.isBlank() || remoteItem.type.isBlank()) return@forEach
             val identity = librarySyncIdentity(remoteItem.id, remoteItem.type)
-            remoteItemsByKey[identity] = remoteItem.withPreservedLogo(localItems[identity])
+            remoteItemsByKey[identity] = remoteItem.mergeRemoteWatchLater(localItems[identity])
         }
         val pendingUpserts = current.pendingUpsertKeys.toKeyMap()
         val pendingDeletes = current.pendingDeleteKeys.toKeyMap()
@@ -117,7 +142,7 @@ object LibrarySyncReducer {
         val migrateLegacyLocal =
             !current.deltaInitialized &&
                 remoteItemsByKey.isEmpty() &&
-                localItems.isNotEmpty()
+                localItems.values.any { LOCAL_LIBRARY_LIST_KEY in it.memberships }
 
         val reconciledItems = if (migrateLegacyLocal) {
             localItems
@@ -128,12 +153,21 @@ object LibrarySyncReducer {
                     remoteItemsByKey[identity] = localItem
                 }
             }
-            localItems.filterValues { ServerItemRef.isServerId(it.id) }.forEach(remoteItemsByKey::putIfAbsent)
+            localItems.forEach { (identity, localItem) ->
+                if (identity !in remoteItemsByKey) {
+                    val retained = if (ServerItemRef.isServerId(localItem.id)) {
+                        localItem
+                    } else {
+                        localItem.withoutPlaylist(LOCAL_LIBRARY_LIST_KEY)
+                    }
+                    if (retained != null) remoteItemsByKey[identity] = retained
+                }
+            }
             remoteItemsByKey
         }
 
         if (migrateLegacyLocal) {
-            localItems.forEach { (identity, item) ->
+            localItems.filterValues { LOCAL_LIBRARY_LIST_KEY in it.memberships }.forEach { (identity, item) ->
                 pendingUpserts[identity] = item.toLibrarySyncKey()
             }
         }
@@ -151,7 +185,8 @@ object LibrarySyncReducer {
             preservedLocalItems =
                 migrateLegacyLocal ||
                     pendingUpserts.isNotEmpty() ||
-                    pendingDeletes.isNotEmpty()
+                    pendingDeletes.isNotEmpty() ||
+                    reconciledItems.values.any { item -> item.memberships.keys.any { it != LOCAL_LIBRARY_LIST_KEY } }
         )
     }
 
@@ -172,11 +207,11 @@ object LibrarySyncReducer {
 
             when (event.operation.trim().lowercase()) {
                 "upsert" -> {
-                    items[identity] = event.item.withPreservedLogo(items[identity])
+                    items[identity] = event.item.mergeRemoteWatchLater(items[identity])
                     appliedUpserts += 1
                 }
                 "delete" -> {
-                    items.remove(identity)
+                    items.removeWatchLater(identity)
                     appliedDeletes += 1
                 }
             }
@@ -240,10 +275,26 @@ private fun kotlin.collections.Collection<LibrarySyncKey>.toKeyMap(): LinkedHash
     return result
 }
 
-private fun SavedLibraryItem.withPreservedLogo(localItem: SavedLibraryItem?): SavedLibraryItem {
-    return if (logo == null && localItem?.logo != null) {
-        copy(logo = localItem.logo)
-    } else {
-        this
+private fun MutableMap<String, SavedLibraryItem>.removeWatchLater(identity: String) {
+    val remaining = this[identity]?.withoutPlaylist(LOCAL_LIBRARY_LIST_KEY)
+    if (remaining == null) remove(identity) else this[identity] = remaining
+}
+
+private fun SavedLibraryItem.mergeRemoteWatchLater(local: SavedLibraryItem?): SavedLibraryItem {
+    if (local == null) return this
+    val memberships = local.memberships.toMutableMap()
+    if ((memberships[LOCAL_LIBRARY_LIST_KEY] ?: 0L) == 0L) memberships[LOCAL_LIBRARY_LIST_KEY] = addedAt
+    val firstSaved = when {
+        addedAt <= 0L -> local.addedAt
+        local.addedAt <= 0L -> addedAt
+        else -> minOf(local.addedAt, addedAt)
     }
+    return copy(
+        logo = logo ?: local.logo,
+        addedAt = firstSaved,
+        playlistAddedAt = memberships,
+        imdbId = imdbId ?: local.imdbId,
+        tmdbId = tmdbId ?: local.tmdbId,
+        movieDistributionDates = movieDistributionDates?.merge(local.movieDistributionDates) ?: local.movieDistributionDates
+    )
 }

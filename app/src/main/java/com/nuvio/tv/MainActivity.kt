@@ -2424,6 +2424,9 @@ private fun navigateToDrawerRoute(
     targetRoute: String
 ) {
     if (currentRoute == targetRoute) {
+        if (targetRoute == Screen.Library.route) {
+            navController.currentBackStackEntry?.savedStateHandle?.set(Screen.Library.OPEN_OVERVIEW, true)
+        }
         if (targetRoute == Screen.Home.route) {
             // Scroll Home to top by clearing saved focus/scroll state on the ViewModel.
             val homeEntry = try {
@@ -2444,6 +2447,9 @@ private fun navigateToDrawerRoute(
             }
             launchSingleTop = true
             restoreState = true
+        }
+        if (targetRoute == Screen.Library.route) {
+            navController.getBackStackEntry(targetRoute).savedStateHandle[Screen.Library.OPEN_OVERVIEW] = true
         }
     } catch (e: IllegalArgumentException) {
         Log.w("NuvioNavigation", "Route not found in nav graph: $targetRoute", e)

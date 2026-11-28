@@ -143,7 +143,9 @@ sealed class Screen(val route: String) {
     data object Discover : Screen("discover") {
         const val VOICE_REQUEST = "discoverVoiceRequest"
     }
-    data object Library : Screen("library")
+    data object Library : Screen("library") {
+        const val OPEN_OVERVIEW = "libraryOpenOverview"
+    }
     data object Settings : Screen("settings")
     data object Tracking : Screen("trakt")
     data object WatchParty : Screen("watch_party?code={code}") {

@@ -19,19 +19,15 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.relocation.BringIntoViewResponder
 import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
@@ -72,11 +67,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import com.nuvio.tv.R
 import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
@@ -95,8 +85,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.draw.clip
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
@@ -107,14 +95,10 @@ import coil3.request.crossfade
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextOverflow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.DetailImdbRatingsVisibility
 import com.nuvio.tv.domain.model.EpisodeOptionsOverlayStyle
 import com.nuvio.tv.domain.model.HomeImdbRatingsVisibility
-import com.nuvio.tv.domain.model.LibraryListTab
-import com.nuvio.tv.domain.model.localizedMembershipTitle
-import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.MetaPreview
@@ -128,13 +112,9 @@ import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.MetaDetailsSkeleton
-import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.PlayManualOverrideDialog
 import com.nuvio.tv.ui.components.SynopsisOverlay
 import com.nuvio.tv.ui.components.TrailerPlayer
-import com.nuvio.tv.ui.components.posteroptions.TrackingRemovalConfirmationDialog
-import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
-import com.nuvio.tv.core.tracking.supportsMembershipFor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -761,7 +741,6 @@ fun MetaDetailsScreen(
                     selectedSeason = uiState.selectedSeason,
                     episodesForSeason = uiState.episodesForSeason,
                     isInLibrary = uiState.isInLibrary,
-                    librarySourceMode = uiState.librarySourceMode,
                     nextToWatch = uiState.nextToWatch,
                     episodeProgressMap = uiState.episodeProgressMap,
                     watchedEpisodes = uiState.watchedEpisodes,
@@ -851,8 +830,7 @@ fun MetaDetailsScreen(
                     },
                     showManualPlayOption = effectiveAutoplayEnabled,
                     onPlayButtonFocused = { viewModel.onEvent(MetaDetailsEvent.OnPlayButtonFocused) },
-                    onToggleLibrary = { viewModel.onEvent(MetaDetailsEvent.OnToggleLibrary) },
-                    onLibraryLongPress = { viewModel.onEvent(MetaDetailsEvent.OnLibraryLongPress) },
+                    onOpenPlaylists = { viewModel.onEvent(MetaDetailsEvent.OnOpenPlaylists) },
                     onToggleMovieWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleMovieWatched) },
                     onToggleEpisodeWatched = { video ->
                         viewModel.onEvent(MetaDetailsEvent.OnToggleEpisodeWatched(video))
@@ -920,41 +898,6 @@ fun MetaDetailsScreen(
             }
         }
 
-        if (uiState.showListPicker) {
-            val nuvioListTab = LibraryListTab(
-                key = LOCAL_LIBRARY_LIST_KEY,
-                title = stringResource(R.string.trakt_library_source_nuvio),
-                type = LibraryListTab.Type.WATCHLIST
-            )
-            val contentType = uiState.meta?.apiType?.lowercase().orEmpty()
-            val providerTabs = uiState.libraryListTabs.filter { tab ->
-                tab.supportsMembershipFor(contentType)
-            }
-            val combinedTabs = listOf(nuvioListTab) + providerTabs
-            LibraryListPickerDialog(
-                title = uiState.meta?.name ?: stringResource(R.string.detail_lists_fallback),
-                tabs = combinedTabs,
-                membership = uiState.pickerMembership,
-                isPending = uiState.pickerPending,
-                error = uiState.pickerError,
-                onToggle = { key ->
-                    viewModel.onEvent(MetaDetailsEvent.OnPickerMembershipToggled(key))
-                },
-                onSave = { viewModel.onEvent(MetaDetailsEvent.OnPickerSave) },
-                onDismiss = { viewModel.onEvent(MetaDetailsEvent.OnPickerDismiss) }
-            )
-        }
-
-        if (uiState.removalConfirmations.isNotEmpty()) {
-            TrackingRemovalConfirmationDialog(
-                itemTitle = uiState.meta?.name.orEmpty(),
-                confirmations = uiState.removalConfirmations,
-                isPending = uiState.pickerPending || uiState.defaultLibraryTogglePending,
-                onConfirm = { viewModel.onEvent(MetaDetailsEvent.OnRemovalConfirmed) },
-                onDismiss = { viewModel.onEvent(MetaDetailsEvent.OnRemovalCancelled) }
-            )
-        }
-
         val message = uiState.userMessage
         if (!message.isNullOrBlank()) {
             Box(
@@ -1006,7 +949,6 @@ private fun MetaDetailsContent(
     selectedSeason: Int,
     episodesForSeason: List<Video>,
     isInLibrary: Boolean,
-    librarySourceMode: LibrarySourceMode,
     nextToWatch: NextToWatch?,
     episodeProgressMap: Map<Pair<Int, Int>, WatchProgress>,
     watchedEpisodes: Set<Pair<Int, Int>>,
@@ -1054,8 +996,7 @@ private fun MetaDetailsContent(
     onPlayStartFromBeginningClick: (String) -> Unit = {},
     showManualPlayOption: Boolean,
     onPlayButtonFocused: () -> Unit,
-    onToggleLibrary: () -> Unit,
-    onLibraryLongPress: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     onToggleMovieWatched: () -> Unit,
     onToggleEpisodeWatched: (Video) -> Unit,
     onMarkSeasonWatched: (Int) -> Unit,
@@ -2141,8 +2082,7 @@ private fun MetaDetailsContent(
                             null
                         },
                         isInLibrary = isInLibrary,
-                        onToggleLibrary = onToggleLibrary,
-                        onLibraryLongPress = onLibraryLongPress,
+                        onOpenPlaylists = onOpenPlaylists,
                         isMovieWatched = isMovieWatched,
                         isMovieWatchedPending = isMovieWatchedPending,
                         onToggleMovieWatched = onToggleMovieWatched,
@@ -2871,93 +2811,5 @@ private fun BackdropLayer(
                     }
                 }
         )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun LibraryListPickerDialog(
-    title: String,
-    tabs: List<LibraryListTab>,
-    membership: Map<String, Boolean>,
-    isPending: Boolean,
-    error: String?,
-    onToggle: (String) -> Unit,
-    onSave: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val primaryFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        primaryFocusRequester.requestFocus()
-    }
-
-    NuvioDialog(
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = stringResource(R.string.detail_lists_subtitle),
-        width = 500.dp
-    ) {
-        if (!error.isNullOrBlank()) {
-            Text(
-                text = error,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
-            )
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 300.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(tabs, key = { it.key }) { tab ->
-                val selected = membership[tab.key] == true
-                // The membership state is exposed through semantics below instead of a leading
-                // glyph in the label, so screen readers hear one clean name plus the state.
-                val titleText = tab.localizedMembershipTitle()
-                val rowModifier = if (tab.key == tabs.firstOrNull()?.key) {
-                    Modifier
-                        .fillMaxWidth()
-                        .focusRequester(primaryFocusRequester)
-                } else {
-                    Modifier.fillMaxWidth()
-                }
-                Button(
-                    onClick = { onToggle(tab.key) },
-                    enabled = !isPending,
-                    modifier = rowModifier.semantics {
-                        role = Role.Checkbox
-                        toggleableState = if (selected) ToggleableState.On else ToggleableState.Off
-                    },
-                    colors = ButtonDefaults.colors(
-                        containerColor = if (selected) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
-                        contentColor = NuvioTheme.colors.TextPrimary
-                    )
-                ) {
-                    Text(
-                        text = titleText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider(color = NuvioTheme.colors.Border, thickness = NuvioTheme.spacing.hairline)
-
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Button(
-                onClick = onSave,
-                enabled = !isPending,
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
-            }
-        }
     }
 }

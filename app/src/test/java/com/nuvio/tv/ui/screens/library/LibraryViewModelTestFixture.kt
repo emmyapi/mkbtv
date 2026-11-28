@@ -26,16 +26,20 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 
-internal class LibraryViewModelTestFixture(sorter: TrackingLibrarySorter? = null) {
+internal class LibraryViewModelTestFixture(sorter: TrackingLibrarySorter? = null, showProvider: Boolean = true) {
     val profile = MutableStateFlow(1)
     val source = MutableStateFlow(LibrarySourceMode.MDBLIST)
     val authenticated = MutableStateFlow(true)
     val tab = LibraryListTab("mdblist:list:7", "Favourites", LibraryListTab.Type.PERSONAL,
         description = "Existing provider description", privacy = LibraryListPrivacy.PRIVATE)
+    val localTabs = MutableStateFlow(emptyList<LibraryListTab>())
+    val localItems = MutableStateFlow(emptyList<LibraryEntry>())
     val tabs = MutableStateFlow(listOf(tab))
     val items = MutableStateFlow(emptyList<LibraryEntry>())
     val persistedSort = MutableStateFlow<String?>(null)
     val repository = mockk<LibraryRepository>(relaxed = true) {
+        every { localListTabs } returns localTabs
+        every { localLibraryItems } returns localItems
         every { sourceMode } returns source
         every { isSyncing } returns flowOf(false)
         every { libraryItems } returns items
@@ -50,8 +54,9 @@ internal class LibraryViewModelTestFixture(sorter: TrackingLibrarySorter? = null
         every { listManager } returns manager
         every { listSorter } returns sorter
     }
+    val discover = mockk<com.nuvio.tv.data.repository.DiscoverSearchApi>(relaxed = true)
     val viewModel = LibraryViewModel(
-        libraryRepository = repository, cloudLibraryRepository = mockk(relaxed = true), cloudPlaybackSessionStore = mockk(),
+        libraryRepository = repository, discover = discover, cloudLibraryRepository = mockk(relaxed = true), cloudPlaybackSessionStore = mockk(),
         externalPlaybackTracker = mockk(), playerSettingsDataStore = mockk(), metaRepository = mockk(),
         debridSettingsDataStore = mockk<DebridSettingsDataStore> { every { settings } returns flowOf(DebridSettings(cloudLibraryEnabled = false)) },
         layoutPreferenceDataStore = mockk<LayoutPreferenceDataStore> {
@@ -72,5 +77,5 @@ internal class LibraryViewModelTestFixture(sorter: TrackingLibrarySorter? = null
         watchedSeriesStateHolder = mockk<WatchedSeriesStateHolder> { every { fullyWatchedSeriesIds } returns MutableStateFlow(emptySet()) },
         profileManager = mockk<ProfileManager> { every { activeProfileId } returns profile },
         posterOptions = mockk(relaxed = true), context = mockk(relaxed = true)
-    )
+    ).also { if (showProvider) it.selectProviderLibrary(true) }
 }

@@ -1252,8 +1252,12 @@ private fun PlaybackNavHost(
             )
         }
 
-        composable(Screen.Library.route) {
+        composable(Screen.Library.route) { entry ->
+            val openOverview by entry.savedStateHandle.getStateFlow(Screen.Library.OPEN_OVERVIEW, false)
+                .collectAsStateWithLifecycle()
             LibraryScreen(
+                openOverview = openOverview,
+                onOverviewOpened = { entry.savedStateHandle[Screen.Library.OPEN_OVERVIEW] = false },
                 showBuiltInHeader = !hideBuiltInHeaders,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))

@@ -791,6 +791,29 @@ def valid_session(value):
                 isinstance(uid, str) and len(uid) <= 20 and ID.fullmatch(uid) for uid in progress))
 
 
+def cached_discover_id(root, kind, ident, native=None):
+    try:
+        path = cache_path(root, metadata_url(CATALOG, kind, ident))
+        with path.open('rb') as stream:
+            body = stream.read(MAX_BYTES + 1)
+        entry = json.loads(body) if len(body) <= MAX_BYTES else None
+    except FileNotFoundError:
+        return native
+    except (OSError, ValueError, RecursionError):
+        return None
+    meta = entry.get('meta') if isinstance(entry, dict) else None
+    if not isinstance(meta, dict) or meta.get('type') != kind:
+        return None
+    result, explicit = meta.get('id'), meta.get('imdb_id')
+    if explicit is not None and not (isinstance(explicit, str) and re.fullmatch(r'tt[0-9]{1,12}', explicit)):
+        return None
+    if result == ident:
+        return explicit or native
+    if isinstance(result, str) and re.fullmatch(r'tt[0-9]{1,12}', result) and explicit in (None, result):
+        return result
+    return None
+
+
 def discover_response(root, profile, request, releases=None):
     from discover_query import DATA, QueryError, query_page, uri
     from contextlib import closing
@@ -834,26 +857,7 @@ def discover_response(root, profile, request, releases=None):
         if key in crosswalk:
             return crosswalk[key]
         native = ident if key in native_members else None
-        try:
-            path = cache_path(root, metadata_url(CATALOG, kind, ident))
-            with path.open('rb') as stream:
-                body = stream.read(MAX_BYTES + 1)
-            entry = json.loads(body) if len(body) <= MAX_BYTES else None
-        except FileNotFoundError:
-            return native
-        except (OSError, ValueError, RecursionError):
-            return None
-        meta = entry.get('meta') if isinstance(entry, dict) else None
-        if not isinstance(meta, dict) or meta.get('type') != kind:
-            return None
-        result, explicit = meta.get('id'), meta.get('imdb_id')
-        if explicit is not None and not (isinstance(explicit, str) and re.fullmatch(r'tt[0-9]{1,12}', explicit)):
-            return None
-        if result == ident:
-            return explicit or native
-        if isinstance(result, str) and re.fullmatch(r'tt[0-9]{1,12}', result) and explicit in (None, result):
-            return result
-        return None
+        return cached_discover_id(root, kind, ident, native)
     try:
         return 200, query_page(request, profile=profile, directory=DATA, resolve=canonical, releases=releases)
     except QueryError as error:
@@ -915,7 +919,8 @@ def handler_for(root, history, public_origin=None, releases=None):
                 profile = token_profile(current, parts[0])
             except (OSError, ValueError, KeyError):
                 return self.reply(503, {'error': 'catalog_unavailable'})
-            limits = {'discover.json': 4 * 1024**2, 'session.json': 128 * 1024, 'movie-releases.json': 8 * 1024}
+            limits = {'discover.json': 4 * 1024**2, 'session.json': 128 * 1024, 'movie-releases.json': 8 * 1024,
+                      'library-facts.json': 16 * 1024}
             if len(parts) != 2 or parts[1] not in limits or profile is None:
                 return self.reply(404, {'error': 'not_found'})
             resource = parts[1]
@@ -929,6 +934,15 @@ def handler_for(root, history, public_origin=None, releases=None):
                 return self.reply(400, invalid)
             if resource == 'movie-releases.json':
                 return self.reply(*movie_release_response(session, releases))
+            if resource == 'library-facts.json':
+                from discover_query import DATA, QueryError
+                from library_facts import library_facts
+                try:
+                    body = library_facts(session, DATA, releases,
+                                         lambda kind, uid: cached_discover_id(root, kind, uid))
+                except QueryError as error:
+                    return self.reply(error.status, {'error': error.code})
+                return self.reply(200, body)
             if resource == 'discover.json':
                 status, body = discover_response(root, int(profile), session, releases)
                 self.add_posters(body)

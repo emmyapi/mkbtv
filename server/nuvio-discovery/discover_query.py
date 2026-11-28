@@ -28,9 +28,10 @@ ORDERS = {
 IMDB_CHART = "imdb-top-250"
 # IMDb's published Bayesian formula, applied to all remaining rated titles.
 # The prior is shared across filters so a title's score is independent of the query.
+RATING_PRIOR_VOTES = 25000.0
 WEIGHTED_ORDER = (
-    "(votes*rating + 25000.0*(SELECT avg(rating) FROM title WHERE rating IS NOT NULL))"
-    "/(votes+25000.0) DESC,votes DESC,id"
+    f"(votes*rating + {RATING_PRIOR_VOTES}*(SELECT avg(rating) FROM title WHERE rating IS NOT NULL))"
+    f"/(votes+{RATING_PRIOR_VOTES}) DESC,votes DESC,id"
 )
 GENRES = {
     k.casefold(): (k,)
@@ -228,6 +229,10 @@ def feed_versions(db, directory, opt):
         wanted.add(opt.sort)
     if opt.genre in EXTRA_GENRES:
         wanted.add("genre:" + opt.genre)
+    return active_feeds(db, directory, wanted, opt.sort)
+
+
+def active_feeds(db, directory, wanted=(), sort=None):
     path = directory / "feeds.sqlite3"
     if not wanted and not path.exists():
         return {}
@@ -245,7 +250,7 @@ def feed_versions(db, directory, opt):
         raise QueryError(503, "catalog_unavailable") from None
     for key in sorted(wanted):
         if key not in versions:
-            raise QueryError(503, "ranking_unavailable" if key == opt.sort else "catalog_unavailable")
+            raise QueryError(503, "ranking_unavailable" if key == sort else "catalog_unavailable")
     return versions
 
 

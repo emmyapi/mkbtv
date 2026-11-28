@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_picker_watch_later">Watch Later</string>
+    <string name="library_picker_add">Add to playlist</string>
+    <string name="library_picker_edit">Edit playlists</string>
+    <string name="library_picker_default_hint">Choose playlists, or save to Watch Later.</string>
+    <string name="library_picker_create">Create playlist</string>
+    <string name="library_picker_name">Playlist name</string>
+    <string name="library_picker_loading">Loading playlists…</string>
+    <string name="library_picker_error">Could not update playlists. Try again.</string>
+    <string name="library_picker_unavailable">%1$s playlists are unavailable.</string>
+</resources>

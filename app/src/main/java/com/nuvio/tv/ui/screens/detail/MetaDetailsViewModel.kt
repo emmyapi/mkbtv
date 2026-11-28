@@ -30,9 +30,6 @@ import com.nuvio.tv.data.repository.parseContentIds
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
-import com.nuvio.tv.domain.model.ListMembershipChanges
-import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
-import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MetaTrailer
@@ -165,7 +162,6 @@ class MetaDetailsViewModel @Inject constructor(
     private var nextToWatchJob: Job? = null
     private var commentsJob: Job? = null
     private var commentsLoadMoreJob: Job? = null
-    private var pendingDefaultLibraryToggle: LibraryEntryInput? = null
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
@@ -379,7 +375,11 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnCommentsModeSelected -> selectCommentsMode(event.mode)
             is MetaDetailsEvent.OnCommentsEpisodeSelected -> selectCommentsEpisode(event.video)
             MetaDetailsEvent.OnPlayClick -> { /* Start playback */ }
-            MetaDetailsEvent.OnToggleLibrary -> toggleLibrary()
+            MetaDetailsEvent.OnOpenPlaylists -> _uiState.value.meta?.let { meta ->
+                posterOptions.playlistPicker.open(meta.toLibraryEntryInput()) {
+                    showMessage(localizedContext.getString(R.string.detail_lists_updated))
+                }
+            }
             MetaDetailsEvent.OnRetry -> loadMeta()
             MetaDetailsEvent.OnRetryComments -> _uiState.value.meta?.let { loadComments(it, forceRefresh = true) }
             MetaDetailsEvent.OnLoadMoreComments -> loadMoreComments()
@@ -408,12 +408,6 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnMarkSeasonUnwatched -> markSeasonUnwatched(event.season)
             is MetaDetailsEvent.OnMarkPreviousEpisodesWatched -> markPreviousEpisodesWatched(event.video)
             is MetaDetailsEvent.OnMarkPreviousSeasonsWatched -> markPreviousSeasonsWatched(event.season)
-            MetaDetailsEvent.OnLibraryLongPress -> openListPicker()
-            is MetaDetailsEvent.OnPickerMembershipToggled -> togglePickerMembership(event.listKey)
-            MetaDetailsEvent.OnPickerSave -> savePickerMembership()
-            MetaDetailsEvent.OnPickerDismiss -> dismissListPicker()
-            MetaDetailsEvent.OnRemovalConfirmed -> confirmPickerRemoval()
-            MetaDetailsEvent.OnRemovalCancelled -> cancelPickerRemoval()
             MetaDetailsEvent.OnClearMessage -> clearMessage()
             MetaDetailsEvent.OnLifecyclePause -> handleLifecyclePause()
         }
@@ -421,74 +415,15 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun observeLibraryState() {
         viewModelScope.launch {
-            libraryRepository.sourceMode
-                .distinctUntilChanged()
-                .collectLatest { sourceMode ->
-                    _uiState.update { state ->
-                        if (state.librarySourceMode == sourceMode) {
-                            state
-                        } else {
-                            state.copy(librarySourceMode = sourceMode)
-                        }
-                    }
+            _uiState.map { it.meta }.distinctUntilChanged()
+                .flatMapLatest { meta ->
+                    if (meta == null) libraryRepository.isInLibrary(itemId, itemType)
+                    else libraryRepository.isInLibrary(meta.toLibraryEntryInput())
                 }
-        }
-
-        viewModelScope.launch {
-            libraryRepository.membershipListTabs
-                .distinctUntilChanged()
-                .collectLatest { tabs ->
-                _uiState.update { state ->
-                    val selectedMembership = state.pickerMembership
-                    val filteredMembership = if (selectedMembership.isEmpty()) {
-                        selectedMembership
-                    } else {
-                        tabs.associate { tab -> tab.key to (selectedMembership[tab.key] == true) }
-                    }
-                    if (state.libraryListTabs == tabs &&
-                        state.pickerMembership == filteredMembership
-                    ) {
-                        state
-                    } else {
-                        state.copy(
-                            libraryListTabs = tabs,
-                            pickerMembership = filteredMembership
-                        )
-                    }
-                }
-            }
-        }
-
-        // Observe library/watchlist on the *same* (id, type) pair that
-        // `toggleLibrary` writes via `meta.toLibraryEntryInput()`. Falling back
-        // to navigation (itemId, itemType) until meta loads keeps the button
-        // responsive but pre-meta (when toggle is unavailable anyway).
-        val canonicalKey = _uiState
-            .map { state ->
-                val id = state.meta?.id?.takeIf { it.isNotBlank() } ?: itemId
-                val type = state.meta?.apiType?.takeIf { it.isNotBlank() } ?: itemType
-                id to type
-            }
-            .distinctUntilChanged()
-
-        viewModelScope.launch {
-            canonicalKey
-                .flatMapLatest { (id, type) -> libraryRepository.isInLibrary(itemId = id, itemType = type) }
                 .distinctUntilChanged()
                 .collectLatest { inLibrary ->
                     _uiState.update { state ->
                         if (state.isInLibrary == inLibrary) state else state.copy(isInLibrary = inLibrary)
-                    }
-                }
-        }
-
-        viewModelScope.launch {
-            canonicalKey
-                .flatMapLatest { (id, type) -> libraryRepository.isInWatchlist(itemId = id, itemType = type) }
-                .distinctUntilChanged()
-                .collectLatest { inWatchlist ->
-                    _uiState.update { state ->
-                        if (state.isInWatchlist == inWatchlist) state else state.copy(isInWatchlist = inWatchlist)
                     }
                 }
         }
@@ -2216,258 +2151,6 @@ class MetaDetailsViewModel @Inject constructor(
     // Same rule the player uses to resume, so Resume never restarts from 0
     private fun shouldResumeProgress(progress: WatchProgress): Boolean = progress.isInProgress()
 
-    private fun toggleLibrary() {
-        if (
-            _uiState.value.defaultLibraryTogglePending ||
-            _uiState.value.removalConfirmations.isNotEmpty()
-        ) {
-            return
-        }
-        val meta = _uiState.value.meta ?: return
-        viewModelScope.launch {
-            val input = meta.toLibraryEntryInput()
-            val wasInWatchlist = _uiState.value.isInWatchlist
-            val wasInLibrary = _uiState.value.isInLibrary
-            _uiState.update { it.copy(defaultLibraryTogglePending = true) }
-            runCatching {
-                libraryRepository.toggleDefault(input)
-            }.onSuccess { result ->
-                if (result.requiresRemovalConfirmation) {
-                    pendingDefaultLibraryToggle = input
-                    _uiState.update {
-                        it.copy(
-                            defaultLibraryTogglePending = false,
-                            removalConfirmations = result.requiredRemovalConfirmations
-                        )
-                    }
-                    return@onSuccess
-                }
-                pendingDefaultLibraryToggle = null
-                _uiState.update { it.copy(defaultLibraryTogglePending = false) }
-                val message = if (wasInLibrary || wasInWatchlist) {
-                    localizedContext.getString(R.string.detail_removed_from_library)
-                } else {
-                    localizedContext.getString(R.string.detail_added_to_library)
-                }
-                showMessage(message)
-            }.onFailure { error ->
-                pendingDefaultLibraryToggle = null
-                _uiState.update { it.copy(defaultLibraryTogglePending = false) }
-                showMessage(
-                    message = error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_update_library_failed),
-                    isError = true
-                )
-            }
-        }
-    }
-
-    private fun openListPicker() {
-        val meta = _uiState.value.meta ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(pickerPending = true, pickerError = null) }
-            runCatching {
-                val snapshot = libraryRepository.getMembershipSnapshot(meta.toLibraryEntryInput())
-                _uiState.update {
-                    it.copy(
-                        showListPicker = true,
-                        pickerMembership = snapshot.listMembership,
-                        pickerPending = false,
-                        pickerError = null
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        pickerPending = false,
-                        pickerError = error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_load_lists_failed),
-                        showListPicker = false
-                    )
-                }
-                showMessage(error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_load_lists_failed), isError = true)
-            }
-        }
-    }
-
-    private fun togglePickerMembership(listKey: String) {
-        _uiState.update { current ->
-            val updatedMembership = toggleTrackingMembershipSelection(
-                tabs = current.libraryListTabs,
-                membership = current.pickerMembership,
-                listKey = listKey,
-                contentType = current.meta?.apiType
-            ) ?: return@update current
-            current.copy(
-                pickerMembership = updatedMembership,
-                pickerError = null
-            )
-        }
-    }
-
-    private fun savePickerMembership() {
-        if (_uiState.value.pickerPending) return
-        val meta = _uiState.value.meta ?: return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(pickerPending = true, pickerError = null) }
-            runCatching {
-                libraryRepository.applyMembershipChanges(
-                    item = meta.toLibraryEntryInput(),
-                    changes = ListMembershipChanges(
-                        desiredMembership = _uiState.value.pickerMembership
-                    )
-                )
-            }.onSuccess { result ->
-                if (result.requiresRemovalConfirmation) {
-                    pendingDefaultLibraryToggle = null
-                    _uiState.update {
-                        it.copy(
-                            pickerPending = false,
-                            removalConfirmations = result.requiredRemovalConfirmations
-                        )
-                    }
-                } else {
-                    completePickerSave()
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        pickerPending = false,
-                        pickerError = error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_update_lists_failed)
-                    )
-                }
-                showMessage(error.message ?: context.getString(com.nuvio.tv.R.string.detail_error_update_lists_failed), isError = true)
-            }
-        }
-    }
-
-    private fun dismissListPicker() {
-        pendingDefaultLibraryToggle = null
-        _uiState.update {
-            it.copy(
-                showListPicker = false,
-                pickerPending = false,
-                pickerError = null,
-                defaultLibraryTogglePending = false,
-                removalConfirmations = emptyList()
-            )
-        }
-    }
-
-    private fun confirmPickerRemoval() {
-        if (_uiState.value.pickerPending || _uiState.value.defaultLibraryTogglePending) return
-        val meta = _uiState.value.meta ?: return
-        val confirmations = _uiState.value.removalConfirmations
-        if (confirmations.isEmpty()) return
-        val defaultToggle = pendingDefaultLibraryToggle
-        if (defaultToggle != null) {
-            confirmDefaultLibraryRemoval(defaultToggle, confirmations)
-            return
-        }
-        viewModelScope.launch {
-            _uiState.update { it.copy(pickerPending = true) }
-            runCatching {
-                libraryRepository.applyMembershipChanges(
-                    item = meta.toLibraryEntryInput(),
-                    changes = ListMembershipChanges(_uiState.value.pickerMembership),
-                    confirmedRemovalProviders = confirmations.mapTo(linkedSetOf(), TrackingMembershipRemovalConfirmation::providerId)
-                )
-            }.onSuccess { result ->
-                if (result.requiresRemovalConfirmation) {
-                    _uiState.update {
-                        it.copy(
-                            pickerPending = false,
-                            removalConfirmations = result.requiredRemovalConfirmations
-                        )
-                    }
-                } else {
-                    completePickerSave()
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        pickerPending = false,
-                        removalConfirmations = emptyList(),
-                        pickerError = error.message
-                            ?: context.getString(com.nuvio.tv.R.string.detail_error_update_lists_failed)
-                    )
-                }
-            }
-        }
-    }
-
-    private fun confirmDefaultLibraryRemoval(
-        input: LibraryEntryInput,
-        confirmations: List<TrackingMembershipRemovalConfirmation>
-    ) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(defaultLibraryTogglePending = true) }
-            runCatching {
-                libraryRepository.toggleDefault(
-                    item = input,
-                    confirmedRemovalProviders = confirmations.mapTo(
-                        linkedSetOf(),
-                        TrackingMembershipRemovalConfirmation::providerId
-                    )
-                )
-            }.onSuccess { result ->
-                if (result.requiresRemovalConfirmation) {
-                    _uiState.update {
-                        it.copy(
-                            defaultLibraryTogglePending = false,
-                            removalConfirmations = result.requiredRemovalConfirmations
-                        )
-                    }
-                } else {
-                    pendingDefaultLibraryToggle = null
-                    _uiState.update {
-                        it.copy(
-                            defaultLibraryTogglePending = false,
-                            removalConfirmations = emptyList()
-                        )
-                    }
-                    showMessage(localizedContext.getString(R.string.detail_removed_from_library))
-                }
-            }.onFailure { error ->
-                pendingDefaultLibraryToggle = null
-                _uiState.update {
-                    it.copy(
-                        defaultLibraryTogglePending = false,
-                        removalConfirmations = emptyList()
-                    )
-                }
-                showMessage(
-                    message = error.message
-                        ?: context.getString(com.nuvio.tv.R.string.detail_error_update_library_failed),
-                    isError = true
-                )
-            }
-        }
-    }
-
-    private fun cancelPickerRemoval() {
-        pendingDefaultLibraryToggle = null
-        _uiState.update {
-            it.copy(
-                defaultLibraryTogglePending = false,
-                removalConfirmations = emptyList()
-            )
-        }
-    }
-
-    private fun completePickerSave() {
-        pendingDefaultLibraryToggle = null
-        _uiState.update {
-            it.copy(
-                pickerPending = false,
-                showListPicker = false,
-                pickerError = null,
-                defaultLibraryTogglePending = false,
-                removalConfirmations = emptyList()
-            )
-        }
-        showMessage(localizedContext.getString(R.string.detail_lists_updated))
-    }
-
     private fun toggleMovieWatched() {
         val meta = _uiState.value.meta ?: return
         if (meta.apiType != "movie") return
@@ -2827,14 +2510,16 @@ class MetaDetailsViewModel @Inject constructor(
             ?.getOrNull(1)
             ?.toIntOrNull()
         val parsedIds = parseContentIds(id)
+        val original = parseContentIds(itemId)
         return LibraryEntryInput(
-            itemId = id,
+            itemId = itemId.ifBlank { id },
             itemType = apiType,
             title = name,
             year = year,
-            traktId = parsedIds.trakt,
-            imdbId = parsedIds.imdb,
-            tmdbId = parsedIds.tmdb,
+            traktId = parsedIds.trakt ?: original.trakt,
+            simklId = parsedIds.simkl ?: original.simkl,
+            imdbId = parsedIds.imdb ?: imdbId ?: original.imdb,
+            tmdbId = parsedIds.tmdb ?: original.tmdb,
             poster = poster,
             posterShape = posterShape,
             background = background,
@@ -2842,6 +2527,7 @@ class MetaDetailsViewModel @Inject constructor(
             description = description,
             releaseInfo = releaseInfo,
             imdbRating = imdbRating,
+            movieDistributionDates = movieDistributionDates,
             genres = genres,
             addonBaseUrl = preferredAddonBaseUrl
         )

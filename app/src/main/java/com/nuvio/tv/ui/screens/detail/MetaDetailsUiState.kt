@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.detail
 
-import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.domain.model.DetailImdbRatingsVisibility
 import com.nuvio.tv.domain.model.EpisodeOptionsOverlayStyle
 import com.nuvio.tv.domain.model.Meta
@@ -13,8 +12,6 @@ import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
-import com.nuvio.tv.domain.model.LibraryListTab
-import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.domain.model.HomeImdbRatingsVisibility
 
@@ -49,15 +46,6 @@ data class MetaDetailsUiState(
     val trailerWatchUrl: String? = null,
     val fullscreenTrailer: FullscreenTrailerState? = null,
     val trailerButtonEnabled: Boolean = false,
-    val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
-    val libraryListTabs: List<LibraryListTab> = emptyList(),
-    val isInWatchlist: Boolean = false,
-    val showListPicker: Boolean = false,
-    val pickerMembership: Map<String, Boolean> = emptyMap(),
-    val pickerPending: Boolean = false,
-    val pickerError: String? = null,
-    val defaultLibraryTogglePending: Boolean = false,
-    val removalConfirmations: List<TrackingMembershipRemovalConfirmation> = emptyList(),
     val isMovieWatched: Boolean = false,
     val isMovieWatchedPending: Boolean = false,
     val watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
@@ -113,7 +101,7 @@ sealed class MetaDetailsEvent {
     data class OnCommentsModeSelected(val mode: CommentsMode) : MetaDetailsEvent()
     data class OnCommentsEpisodeSelected(val video: Video) : MetaDetailsEvent()
     data object OnPlayClick : MetaDetailsEvent()
-    data object OnToggleLibrary : MetaDetailsEvent()
+    data object OnOpenPlaylists : MetaDetailsEvent()
     data object OnRetry : MetaDetailsEvent()
     data object OnRetryComments : MetaDetailsEvent()
     data object OnLoadMoreComments : MetaDetailsEvent()
@@ -137,12 +125,6 @@ sealed class MetaDetailsEvent {
     data class OnMarkSeasonUnwatched(val season: Int) : MetaDetailsEvent()
     data class OnMarkPreviousEpisodesWatched(val video: Video) : MetaDetailsEvent()
     data class OnMarkPreviousSeasonsWatched(val season: Int) : MetaDetailsEvent()
-    data object OnLibraryLongPress : MetaDetailsEvent()
-    data class OnPickerMembershipToggled(val listKey: String) : MetaDetailsEvent()
-    data object OnPickerSave : MetaDetailsEvent()
-    data object OnPickerDismiss : MetaDetailsEvent()
-    data object OnRemovalConfirmed : MetaDetailsEvent()
-    data object OnRemovalCancelled : MetaDetailsEvent()
     data object OnClearMessage : MetaDetailsEvent()
     data object OnLifecyclePause : MetaDetailsEvent()
 }

@@ -50,7 +50,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.nuvio.tv.data.repository.DiscoverLibrarySnapshot
+import com.nuvio.tv.data.repository.DiscoverSearchApi
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.search.DiscoverWatch
 import java.util.Locale
 import javax.inject.Inject
 
@@ -112,6 +115,13 @@ data class LibraryListEditorState(
 
 data class LibraryUiState(
     val sourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
+    val configuredSource: LibrarySourceMode = LibrarySourceMode.LOCAL,
+    val dataProfile: Int? = null,
+    val savedFilters: SavedLibraryFilters = SavedLibraryFilters(),
+    val indexLoading: Boolean = false,
+    val indexUnavailable: Boolean = false,
+    val incompleteCatalog: Boolean = false,
+    val savedWatchedKeys: Set<String> = emptySet(),
     val allItems: List<LibraryEntry> = emptyList(),
     val visibleItems: List<LibraryEntry> = emptyList(),
     val cloudLibrary: CloudLibraryUiState = CloudLibraryUiState(),
@@ -160,6 +170,7 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
+    private val discover: DiscoverSearchApi,
     private val cloudLibraryRepository: CloudLibraryRepository,
     private val cloudPlaybackSessionStore: CloudLibraryPlaybackSessionStore,
     private val externalPlaybackTracker: ExternalPlaybackTracker,
@@ -190,10 +201,17 @@ class LibraryViewModel @Inject constructor(
     private var cloudRefreshJob: Job? = null
     private var selectedSortOverride: Pair<Int, LibrarySortOption>? = null
 
+    private val providerViewProfile = MutableStateFlow<Int?>(null)
+    private val indexRetry = MutableStateFlow(0)
+    private var index = DiscoverLibrarySnapshot.EMPTY
+    private var indexProfile: Int? = null
+    private var indexedKeyword: String? = null
+
     init {
         posterOptions.bind(viewModelScope)
         observeLayoutPreferences()
         observeLibraryData()
+        observeSavedIndex()
         observeProviderSortOrder()
         viewModelScope.launch {
             profileManager.activeProfileId.collect { profileId ->
@@ -626,47 +644,25 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun observeLibraryData() {
-        val selectedProviderAuthenticated = libraryRepository.sourceMode.flatMapLatest { sourceMode ->
-            sourceMode.providerId
-                ?.let { providerId -> trackingProviderRegistry.provider(providerId)?.isAuthenticated }
-                ?: flowOf(true)
-        }
+        val source = combine(profileManager.activeProfileId, libraryRepository.sourceMode, providerViewProfile) {
+            profile, configured, requested -> Triple(profile, configured, if (requested == profile) configured else LibrarySourceMode.LOCAL)
+        }.distinctUntilChanged()
         viewModelScope.launch {
-            combine(
-                libraryRepository.sourceMode,
-                libraryRepository.isSyncing,
-                libraryRepository.libraryItems,
-                libraryRepository.listTabs,
-                libraryPreferences.sortOption,
-                authManager.authState,
-                selectedProviderAuthenticated,
-                libraryPreferences.lastSelectedList,
-                libraryPreferences.lastSelectedType
-            ) { args ->
-                val sourceMode = args[0] as LibrarySourceMode
-                val isSyncing = args[1] as Boolean
-                @Suppress("UNCHECKED_CAST")
-                val items = args[2] as List<LibraryEntry>
-                @Suppress("UNCHECKED_CAST")
-                val listTabs = args[3] as List<LibraryListTab>
-                val persistedSortKey = args[4] as String?
-                val authState = args[5] as AuthState
-                val isTrackingAuthenticated = args[6] as Boolean
-                val persistedListKey = args[7] as String?
-                val persistedTypeKey = args[8] as String?
-                DataBundle(
-                    sourceMode = sourceMode,
-                    isSyncing = isSyncing,
-                    items = items,
-                    listTabs = listTabs,
-                    persistedSortKey = persistedSortKey,
-                    authState = authState,
-                    isTrackingAuthenticated = isTrackingAuthenticated,
-                    persistedListKey = persistedListKey,
-                    persistedTypeKey = persistedTypeKey
-                )
+            source.flatMapLatest { (profile, configured, mode) ->
+                val provider = mode.providerId?.let(trackingProviderRegistry::provider)
+                val native = mode == LibrarySourceMode.LOCAL
+                combine(
+                    if (native) libraryRepository.localLibraryItems else libraryRepository.libraryItems,
+                    if (native) libraryRepository.localListTabs else libraryRepository.listTabs,
+                    combine(libraryPreferences.sortOption, libraryPreferences.lastSelectedList, libraryPreferences.lastSelectedType, ::Triple),
+                    combine(authManager.authState, provider?.isAuthenticated ?: flowOf(true), libraryRepository.isSyncing, ::Triple)
+                ) { entries, tabs, preferences, auth ->
+                    DataBundle(mode, auth.third && !native, entries, tabs, preferences.first, auth.first, auth.second,
+                        preferences.second, preferences.third, profile, configured)
+                }
             }.collectLatest { bundle ->
                 val (sourceMode, isSyncing, items, listTabs, persistedSortKey, authState, isTrackingAuthenticated, persistedListKey, persistedTypeKey) = bundle
+                if (bundle.profileId != profileManager.activeProfileId.value) return@collectLatest
                 if (_uiState.value.sourceMode != sourceMode || !isTrackingAuthenticated) onCloseManageLists()
                 _uiState.update { current ->
                     val nextSelectedList = when {
@@ -710,7 +706,16 @@ class LibraryViewModel @Inject constructor(
 
                     val updated = current.copy(
                         sourceMode = sourceMode,
-                        listManagement = sourceMode.providerId?.let(trackingProviderRegistry::provider)?.listManager?.capabilities,
+                        configuredSource = bundle.configuredSource,
+                        dataProfile = bundle.profileId,
+                        savedFilters = if (current.dataProfile != bundle.profileId) SavedLibraryFilters() else {
+                            val playlist = current.savedFilters.playlist
+                            if (sourceMode == LibrarySourceMode.LOCAL && playlist != null && listTabs.none { it.key == playlist })
+                                current.savedFilters.copy(playlist = null) else current.savedFilters
+                        },
+                        listManagement = if (sourceMode == LibrarySourceMode.LOCAL) {
+                            TrackingListManagementCapabilities(emptyList(), supportsReordering = true)
+                        } else sourceMode.providerId?.let(trackingProviderRegistry::provider)?.listManager?.capabilities,
                         allItems = items,
                         listTabs = listTabs,
                         availableSortOptions = sortOptions,
@@ -724,6 +729,57 @@ class LibraryViewModel @Inject constructor(
                         isLoading = isSyncing && items.isEmpty()
                     )
                     updated.withVisibleItems().withVisibleCloudItems()
+                }
+            }
+        }
+    }
+
+    fun selectProviderLibrary(selected: Boolean) {
+        providerViewProfile.value = if (selected) profileManager.activeProfileId.value else null
+    }
+
+    fun setSavedFilters(filters: SavedLibraryFilters) {
+        _uiState.update { it.copy(savedFilters = filters).withVisibleItems() }
+    }
+
+    fun retrySavedIndex() { indexRetry.value++ }
+
+    private data class IndexRequest(
+        val profile: Int, val items: List<LibraryEntry>, val keyword: String, val retry: Int,
+        val watchedMovies: Set<String>, val watchedSeries: Set<String>
+    )
+
+    private fun observeSavedIndex() {
+        viewModelScope.launch {
+            combine(uiState, indexRetry, profileManager.activeProfileId) { state, retry, profile ->
+                if (state.dataProfile == profile && state.sourceMode == LibrarySourceMode.LOCAL &&
+                    state.savedFilters.needsIndex && state.allItems.isNotEmpty()) {
+                    val checkWatch = state.savedFilters.watch != DiscoverWatch.ANY
+                    IndexRequest(profile, state.allItems, state.savedFilters.keyword, retry,
+                        if (checkWatch) state.watchedMovieIds else emptySet(),
+                        if (checkWatch) state.watchedSeriesIds else emptySet())
+                } else null
+            }.distinctUntilChanged().collectLatest { request ->
+                if (request == null) {
+                    _uiState.update { it.copy(indexLoading = false, indexUnavailable = false) }
+                    return@collectLatest
+                }
+                if (request.profile != indexProfile) {
+                    index = DiscoverLibrarySnapshot.EMPTY
+                    indexedKeyword = null
+                }
+                _uiState.update { it.copy(indexLoading = true, indexUnavailable = false).withVisibleItems() }
+                try {
+                    val result = discover.libraryFacts(request.profile, request.items, request.keyword, request.watchedMovies, request.watchedSeries)
+                    if (request.profile != profileManager.activeProfileId.value) return@collectLatest
+                    index = result
+                    indexProfile = request.profile
+                    indexedKeyword = request.keyword
+                    _uiState.update { it.copy(indexLoading = false).withVisibleItems() }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _uiState.update { it.copy(indexLoading = false, indexUnavailable = true).withVisibleItems() }
                 }
             }
         }
@@ -841,8 +897,10 @@ class LibraryViewModel @Inject constructor(
         val persistedSortKey: String?,
         val authState: AuthState,
         val isTrackingAuthenticated: Boolean,
-        val persistedListKey: String? = null,
-        val persistedTypeKey: String? = null
+        val persistedListKey: String?,
+        val persistedTypeKey: String?,
+        val profileId: Int,
+        val configuredSource: LibrarySourceMode
     )
 
     private data class CloudLibrarySettingsSnapshot(
@@ -906,6 +964,22 @@ class LibraryViewModel @Inject constructor(
         releaseInfo?.let { YEAR_REGEX.find(it)?.value }
 
     private fun LibraryUiState.withVisibleItems(): LibraryUiState {
+        if (sourceMode == LibrarySourceMode.LOCAL) {
+            val facts = if (dataProfile == indexProfile) index else DiscoverLibrarySnapshot.EMPTY
+            val movies = facts.watchedIds("movie", watchedMovieIds)
+            val series = facts.watchedIds("series", watchedSeriesIds)
+            val visible = savedFilters.apply(allItems, facts, indexedKeyword, movies, series)
+            val missingHistory = savedFilters.watch != DiscoverWatch.ANY &&
+                (facts.missingWatchedIds("movie", watchedMovieIds) || facts.missingWatchedIds("series", watchedSeriesIds))
+            return copy(
+                incompleteCatalog = indexProfile != null && indexProfile == dataProfile && (savedFilters.missingCatalog(facts) || missingHistory),
+                savedWatchedKeys = visible.filter { it.isSavedWatched(facts[it], movies, series) }.mapTo(mutableSetOf()) { "${it.type}:${it.id}" },
+                visibleItems = visible.withCustomPosterUrls(
+                    com.nuvio.tv.core.poster.patternForScreen(customPosterUrlPattern, com.nuvio.tv.core.poster.CustomPosterScreen.LIBRARY, customPosterEnabledScreens)
+                )
+            )
+        }
+
         val listFiltered = if (sourceMode.providerId != null) {
             val listKey = selectedListKey ?: ""
             allItems.filter { entry -> entry.listKeys.contains(listKey) }

@@ -1,7 +1,9 @@
 package com.nuvio.tv.data.repository
 
 import android.content.Context
+import com.nuvio.tv.R
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.LibrarySyncService
 import com.nuvio.tv.core.tracking.TrackingLibraryProvider
@@ -18,9 +20,11 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibraryListPrivacy
 import com.nuvio.tv.domain.model.LibrarySourceMode
+import com.nuvio.tv.domain.model.LocalPlaylist
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import com.nuvio.tv.domain.repository.MetaRepository
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -35,6 +39,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LibraryRepositoryTrackingTest {
+    private val watchLater = LibraryListTab(LOCAL_LIBRARY_LIST_KEY, "Watch Later", LibraryListTab.Type.WATCHLIST)
+    private val nativePlaylist = LocalPlaylist("local:playlist:test", "Family movies")
+
     @Test
     fun `screen tabs follow active provider while membership tabs include every connection`() = runTest {
         val sourceMode = MutableStateFlow(LibrarySourceMode.SIMKL)
@@ -49,12 +56,43 @@ class LibraryRepositoryTrackingTest {
         )
 
         assertEquals(listOf(simklTab), repository.listTabs.first())
-        assertEquals(listOf(traktTab, simklTab), repository.membershipListTabs.first())
+        assertEquals(listOf(watchLater, nativePlaylist.toTab(), traktTab, simklTab), repository.membershipListTabs.first())
 
+        assertEquals(listOf(watchLater, nativePlaylist.toTab()), repository.localListTabs.first())
         sourceMode.value = LibrarySourceMode.TRAKT
 
         assertEquals(listOf(traktTab), repository.listTabs.first())
-        assertEquals(listOf(traktTab, simklTab), repository.membershipListTabs.first())
+        assertEquals(listOf(watchLater, nativePlaylist.toTab(), traktTab, simklTab), repository.membershipListTabs.first())
+    }
+
+    @Test
+    fun `unavailable provider leaves native destinations and membership visible`() = runTest {
+        val id = TrackingProviderId.MDBLIST
+        val unavailable = FakeLibraryProvider(id, tab("mdblist:watchlist", id), snapshotFailure = IllegalStateException("offline"))
+        val repository = repository(MutableStateFlow(LibrarySourceMode.LOCAL), setOf(unavailable))
+        val snapshot = repository.getMembershipSnapshot(LibraryEntryInput("tt1", "movie", "Movie"))
+        assertEquals(setOf(id), snapshot.unavailableProviders)
+        assertEquals(mapOf(LOCAL_LIBRARY_LIST_KEY to false, nativePlaylist.key to true), snapshot.listMembership)
+    }
+
+    @Test
+    fun `indicator uses visible editable destinations from all connections and keeps server titles private`() = runTest {
+        val active = MutableStateFlow(LibrarySourceMode.SIMKL)
+        val broken = FakeLibraryProvider(TrackingProviderId.SIMKL, tab("simkl:watching", TrackingProviderId.SIMKL),
+            observerFailure = IllegalStateException("offline"))
+        val visible = tab("watchlist", TrackingProviderId.TRAKT)
+        val trakt = FakeLibraryProvider(TrackingProviderId.TRAKT, visible, membership = mapOf(visible.key to true))
+        val readOnly = tab("mdblist:popular", TrackingProviderId.MDBLIST).copy(isMembershipDestination = false)
+        val mdb = FakeLibraryProvider(TrackingProviderId.MDBLIST, readOnly, membership = mapOf(readOnly.key to true))
+        val item = LibraryEntryInput("tmdb:42", "movie", "Film", imdbId = "tt0042", tmdbId = 42)
+        val repo = repository(active, setOf(trakt, broken, mdb))
+
+        assertTrue(repo.isInLibrary(item).first())
+        assertEquals(listOf("tt0042"), trakt.observedIds)
+        val privateCopy = item.copy(itemId = "srv1:home:42")
+        assertFalse(repo.isInLibrary(privateCopy).first())
+        assertEquals(listOf("tt0042"), trakt.observedIds)
+        assertFalse(repository(active, setOf(mdb, broken)).isInLibrary(item).first())
     }
 
     @Test
@@ -187,7 +225,7 @@ class LibraryRepositoryTrackingTest {
         val source = MutableStateFlow(LibrarySourceMode.MDBLIST)
         val repository = repository(source, providers.toSet())
         assertEquals(listOf(tabs.last()), repository.listTabs.first())
-        assertEquals(tabs, repository.membershipListTabs.first())
+        assertEquals(listOf(watchLater, nativePlaylist.toTab()) + tabs, repository.membershipListTabs.first())
         repository.refreshNow()
         assertTrue(providers.take(2).all { it.refreshIntents.isEmpty() })
         assertEquals(listOf(TrackingRefreshIntent.USER_INITIATED), providers.last().refreshIntents)
@@ -201,8 +239,15 @@ class LibraryRepositoryTrackingTest {
             every { librarySourceMode } returns sourceMode
         }
         return LibraryRepositoryImpl(
-            appContext = mockk<Context>(relaxed = true),
-            libraryPreferences = mockk<LibraryPreferences>(relaxed = true),
+            appContext = mockk<Context>(relaxed = true) {
+                every { getString(R.string.library_picker_watch_later) } returns watchLater.title
+            },
+            libraryPreferences = mockk<LibraryPreferences>(relaxed = true) {
+                every { playlists } returns flowOf(listOf(nativePlaylist))
+                every { libraryItems } returns flowOf(emptyList())
+                every { observeMembership(any(), any(), any(), any()) } returns flowOf(emptySet())
+                coEvery { membershipSnapshot(any(), any(), 1) } returns mapOf(LOCAL_LIBRARY_LIST_KEY to false, nativePlaylist.key to true)
+            },
             traktSettingsDataStore = settings,
             librarySyncService = mockk<LibrarySyncService>(relaxed = true),
             authManager = mockk<AuthManager>(relaxed = true),
@@ -224,9 +269,12 @@ class LibraryRepositoryTrackingTest {
         private val tab: LibraryListTab,
         private val membership: Map<String, Boolean> = emptyMap(),
         private val removalConfirmation: TrackingMembershipRemovalConfirmation? = null,
-        override val listManager: TrackingListManager? = null
+        override val listManager: TrackingListManager? = null,
+        private val snapshotFailure: Exception? = null,
+        private val observerFailure: Exception? = null
     ) : TrackingLibraryProvider {
         val refreshIntents = mutableListOf<TrackingRefreshIntent>()
+        val observedIds = mutableListOf<String>()
         var applyCalls = 0
         var lastChanges: ListMembershipChanges? = null
         var lastConfirmed = false
@@ -238,15 +286,21 @@ class LibraryRepositoryTrackingTest {
         override fun recognizesListKey(key: String): Boolean = key == tab.key || key.startsWith("${providerId.storageId}:")
 
         override fun observeMembership(itemId: String, itemType: String): Flow<Set<String>> =
-            flowOf(emptySet())
+            kotlinx.coroutines.flow.flow {
+                observedIds.add(itemId)
+                observerFailure?.let { throw it }
+                emit(membership.filterValues { it }.keys)
+            }
 
         override fun toggledDefaultMembership(
             currentMembership: Map<String, Boolean>
         ): Map<String, Boolean> =
             currentMembership + (tab.key to (currentMembership[tab.key] != true))
 
-        override suspend fun getMembershipSnapshot(item: LibraryEntryInput) =
-            ListMembershipSnapshot(membership)
+        override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
+            snapshotFailure?.let { throw it }
+            return ListMembershipSnapshot(membership)
+        }
 
         override suspend fun membershipRemovalConfirmation(
             item: LibraryEntryInput,

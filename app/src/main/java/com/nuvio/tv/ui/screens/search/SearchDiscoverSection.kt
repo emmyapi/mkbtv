@@ -531,7 +531,7 @@ internal fun MovieReleasePicker(
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun DiscoverDropdownPicker(
+internal fun DiscoverDropdownPicker(
     modifier: Modifier = Modifier,
     title: String,
     value: String,
@@ -718,13 +718,13 @@ private fun DiscoverDropdownPicker(
     }
 }
 
-private val DiscoverWatch.labelResource get() = when (this) {
+internal val DiscoverWatch.labelResource get() = when (this) {
     DiscoverWatch.ANY -> R.string.discover_filter_any
     DiscoverWatch.UNWATCHED -> R.string.discover_unwatched
     DiscoverWatch.WATCHED -> R.string.discover_watched
 }
 
-private val DiscoverPeriod.labelResource get() = when (this) {
+internal val DiscoverPeriod.labelResource get() = when (this) {
     DiscoverPeriod.ANY -> R.string.discover_filter_any
     DiscoverPeriod.THIS_YEAR -> R.string.discover_this_year
     DiscoverPeriod.LAST_FIVE_YEARS -> R.string.discover_last_five_years
@@ -747,7 +747,7 @@ private val DiscoverSort.labelResource get() = when (this) {
     DiscoverSort.TITLE -> R.string.discover_title_order
 }
 
-private data class DiscoverOption(
+internal data class DiscoverOption(
     val label: String,
     val value: String
 )

@@ -103,6 +103,7 @@ class SimklLibraryService @Inject constructor(
         }
         require(desiredDefinitions.size <= 1) { "A Simkl item can have only one list status" }
         val desired = desiredDefinitions.singleOrNull()
+        if (desired == null && changes.desiredMembership[currentDefinition?.key] != false) return
         require(desired == null || desired.supportedContentTypes.any { supported ->
             supported.equals(item.itemType.normalizedContentType(), ignoreCase = true)
         }) { "${desired?.title} does not support ${item.itemType}" }
@@ -164,6 +165,8 @@ class SimklLibraryService @Inject constructor(
                 candidate.matchesSimklContentId(item.itemId)
             }
         } ?: return null
+        val currentKey = simklLibraryStatusDefinitions.firstOrNull { it.status == currentEntry.status }?.key
+        if (changes.desiredMembership[currentKey] != false) return null
         val impacts = currentEntry.destructiveRemovalImpacts()
         return impacts.takeIf { values -> values.isNotEmpty() }?.let {
             TrackingMembershipRemovalConfirmation(TrackingProviderId.SIMKL, it)

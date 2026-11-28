@@ -1,6 +1,7 @@
 package com.nuvio.tv.domain.model
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.core.tracking.TrackingProviderId
 
 @Immutable
 data class LibraryEntry(
@@ -31,7 +32,9 @@ data class LibraryEntry(
     val landscapePoster: String? = null,
     override val trackingProviderId: String? = null,
     override val trackingProviderItemId: String? = null,
-    override val trackingSourceUrl: String? = null
+    override val trackingSourceUrl: String? = null,
+    val listAddedAt: Map<String, Long> = emptyMap(),
+    val movieDistributionDates: MovieDistributionDates? = null
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = id
@@ -50,9 +53,19 @@ data class LibraryEntry(
             releaseInfo = releaseInfo,
             imdbRating = imdbRating,
             genres = genres,
+            imdbId = imdbId,
             rawPosterUrl = rawPosterUrl,
-            landscapePoster = landscapePoster
+            landscapePoster = landscapePoster,
+            movieDistributionDates = movieDistributionDates
         )
+    }
+}
+
+data class LocalPlaylist(val key: String, val name: String) {
+    fun toTab() = LibraryListTab(key = key, title = name, type = LibraryListTab.Type.PERSONAL)
+
+    companion object {
+        const val KEY_PREFIX = "local:playlist:"
     }
 }
 
@@ -102,7 +115,8 @@ data class LibraryListTab(
 
 @Immutable
 data class ListMembershipSnapshot(
-    val listMembership: Map<String, Boolean> = emptyMap()
+    val listMembership: Map<String, Boolean> = emptyMap(),
+    val unavailableProviders: Set<TrackingProviderId> = emptySet()
 )
 
 @Immutable
@@ -128,5 +142,6 @@ data class LibraryEntryInput(
     val releaseInfo: String? = null,
     val imdbRating: Float? = null,
     val genres: List<String> = emptyList(),
-    val addonBaseUrl: String? = null
+    val addonBaseUrl: String? = null,
+    val movieDistributionDates: MovieDistributionDates? = null
 )

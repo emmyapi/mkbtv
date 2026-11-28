@@ -107,8 +107,7 @@ fun HeroContentSection(
     isPlayEnabled: Boolean = true,
     onPlayLongPress: (() -> Unit)? = null,
     isInLibrary: Boolean,
-    onToggleLibrary: () -> Unit,
-    onLibraryLongPress: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
     onToggleMovieWatched: () -> Unit,
@@ -284,9 +283,9 @@ fun HeroContentSection(
                             } else {
                                 null
                             },
-                            contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
-                            onClick = onToggleLibrary,
-                            onLongPress = onLibraryLongPress,
+                            contentDescription = stringResource(if (isInLibrary) R.string.library_picker_edit else R.string.library_picker_add),
+                            onClick = onOpenPlaylists,
+                            onLongPress = onOpenPlaylists,
                             onFocused = onHeroActionFocused
                         )
 
@@ -560,7 +559,7 @@ private fun ActionIconButton(
     enabled: Boolean = true,
     selected: Boolean = false,
     // When true this icon button is a state toggle (watched/unwatched) and announces itself as
-    // such; the library add/remove button is a plain action and leaves this off.
+    // such. The library button opens the playlist picker.
     toggleable: Boolean = false,
     selectedContainerColor: Color = Color(0xFF7CFF9B),
     selectedContentColor: Color = Color.Black,

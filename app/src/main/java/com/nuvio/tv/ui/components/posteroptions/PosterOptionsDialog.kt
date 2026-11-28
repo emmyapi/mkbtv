@@ -2,42 +2,22 @@ package com.nuvio.tv.ui.components.posteroptions
 
 import com.nuvio.tv.ui.theme.NuvioTheme
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalImpact
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
-import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
-import com.nuvio.tv.core.tracking.supportsMembershipFor
-import com.nuvio.tv.domain.model.LibraryListTab
-import com.nuvio.tv.domain.model.localizedMembershipTitle
-import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.ui.components.NuvioDialog
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -45,15 +25,13 @@ import com.nuvio.tv.ui.components.NuvioDialog
 fun PosterOptionsDialog(
     title: String,
     isInLibrary: Boolean,
-    isLibraryPending: Boolean,
-    showManageLists: Boolean,
     isMovie: Boolean,
     isSeries: Boolean = false,
     isWatched: Boolean,
     isWatchedPending: Boolean,
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
-    onToggleLibrary: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     onToggleWatched: () -> Unit
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
@@ -81,25 +59,14 @@ fun PosterOptionsDialog(
         }
 
         Button(
-            onClick = onToggleLibrary,
-            enabled = !isLibraryPending,
+            onClick = onOpenPlaylists,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.colors(
                 containerColor = NuvioTheme.colors.BackgroundCard,
                 contentColor = NuvioTheme.colors.TextPrimary
             )
         ) {
-            Text(
-                if (showManageLists) {
-                    stringResource(R.string.library_manage_lists)
-                } else {
-                    if (isInLibrary) {
-                        stringResource(R.string.hero_remove_from_library)
-                    } else {
-                        stringResource(R.string.hero_add_to_library)
-                    }
-                }
-            )
+            Text(stringResource(if (isInLibrary) R.string.library_picker_edit else R.string.library_picker_add))
         }
 
         if (isMovie || isSeries) {
@@ -124,90 +91,6 @@ fun PosterOptionsDialog(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun PosterListPickerDialog(
-    title: String,
-    tabs: List<LibraryListTab>,
-    membership: Map<String, Boolean>,
-    isPending: Boolean,
-    error: String?,
-    onToggle: (String) -> Unit,
-    onSave: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val primaryFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        primaryFocusRequester.requestFocus()
-    }
-
-    NuvioDialog(
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = stringResource(R.string.detail_lists_subtitle),
-        width = 500.dp
-    ) {
-        if (!error.isNullOrBlank()) {
-            Text(
-                text = error,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
-            )
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 300.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(tabs, key = { it.key }) { tab ->
-                val selected = membership[tab.key] == true
-                Button(
-                    onClick = { onToggle(tab.key) },
-                    enabled = !isPending,
-                    modifier = (if (tab.key == tabs.firstOrNull()?.key) {
-                        Modifier
-                            .fillMaxWidth()
-                            .focusRequester(primaryFocusRequester)
-                    } else {
-                        Modifier.fillMaxWidth()
-                    }).semantics {
-                        role = Role.Checkbox
-                        toggleableState = if (selected) ToggleableState.On else ToggleableState.Off
-                    },
-                    colors = ButtonDefaults.colors(
-                        containerColor = if (selected) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
-                        contentColor = NuvioTheme.colors.TextPrimary
-                    )
-                ) {
-                    Text(
-                        text = tab.localizedMembershipTitle(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        Divider(color = NuvioTheme.colors.Border, thickness = NuvioTheme.spacing.hairline)
-
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Button(
-                onClick = onSave,
-                enabled = !isPending,
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
-            }
-        }
-    }
-}
-
 @Composable
 fun PosterOptionsHost(
     state: PosterOptionsState,
@@ -223,8 +106,6 @@ fun PosterOptionsHost(
         PosterOptionsDialog(
             title = target.name,
             isInLibrary = state.isInLibrary,
-            isLibraryPending = state.isLibraryPending,
-            showManageLists = state.librarySourceMode != LibrarySourceMode.LOCAL,
             isMovie = isMovie,
             isSeries = isSeries,
             isWatched = state.isWatched,
@@ -234,14 +115,7 @@ fun PosterOptionsHost(
                 onNavigateToDetail(target.id, target.apiType, state.addonBaseUrl)
                 controller.dismiss()
             },
-            onToggleLibrary = {
-                if (state.librarySourceMode != LibrarySourceMode.LOCAL) {
-                    controller.openListPicker()
-                } else {
-                    controller.toggleLibrary()
-                    controller.dismiss()
-                }
-            },
+            onOpenPlaylists = controller::openListPicker,
             onToggleWatched = {
                 if (isMovie) {
                     controller.toggleMovieWatched()
@@ -253,38 +127,7 @@ fun PosterOptionsHost(
         )
     }
 
-    if (state.listPickerActive) {
-        val localTab = LibraryListTab(
-            key = LOCAL_LIBRARY_LIST_KEY,
-            title = stringResource(R.string.trakt_library_source_nuvio),
-            type = LibraryListTab.Type.WATCHLIST
-        )
-        val contentType = state.listPickerContentType.orEmpty()
-        val destinationTabs = state.libraryListTabs.filter { tab ->
-            tab.supportsMembershipFor(contentType)
-        }
-        PosterListPickerDialog(
-            title = state.listPickerTitle.orEmpty(),
-            tabs = listOf(localTab) + destinationTabs,
-            membership = state.listPickerMembership,
-            isPending = state.listPickerPending,
-            error = state.listPickerError,
-            onToggle = { key -> controller.toggleListMembership(key) },
-            onSave = { controller.saveListPicker() },
-            onDismiss = { controller.dismissListPicker() }
-        )
-    }
-
-    val confirmations = state.removalConfirmations
-    if (confirmations.isNotEmpty()) {
-        TrackingRemovalConfirmationDialog(
-            itemTitle = state.listPickerTitle.orEmpty(),
-            confirmations = confirmations,
-            isPending = state.listPickerPending,
-            onConfirm = controller::confirmDestructiveRemoval,
-            onDismiss = controller::cancelDestructiveRemoval
-        )
-    }
+    PlaylistPickerHost(controller.playlistPicker)
 }
 
 @Composable

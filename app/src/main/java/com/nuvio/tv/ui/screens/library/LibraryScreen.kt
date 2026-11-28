@@ -119,6 +119,7 @@ private const val KEY_REPEAT_THROTTLE_MS = 80L
 
 private enum class LibraryViewMode {
     Saved,
+    Provider,
     Cloud,
     Servers
 }
@@ -135,6 +136,8 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     serversViewModel: LibraryServersViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
+    openOverview: Boolean = false,
+    onOverviewOpened: () -> Unit = {},
     onNavigateToDetail: (String, String, String?) -> Unit,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> },
     onCloudPlaybackResolved: (CloudLibraryPlaybackInfo) -> Unit = {}
@@ -150,8 +153,15 @@ fun LibraryScreen(
     val servers by serversViewModel.servers.collectAsState()
     val serverShelves by serversViewModel.shelves.collectAsState()
     val hasServers = servers.enabledConnections.isNotEmpty()
-    val viewModes = LibraryViewMode.entries.filter { it != LibraryViewMode.Servers || hasServers }
+    val viewModes = LibraryViewMode.entries.filter {
+        when (it) {
+            LibraryViewMode.Servers -> hasServers
+            LibraryViewMode.Provider -> uiState.configuredSource != LibrarySourceMode.LOCAL
+            else -> true
+        }
+    }
     val viewMode = selectedViewMode.takeIf { it in viewModes } ?: LibraryViewMode.Saved
+    LaunchedEffect(viewMode) { viewModel.selectProviderLibrary(viewMode == LibraryViewMode.Provider) }
     var activeCloudItem by remember { mutableStateOf<CloudLibraryItem?>(null) }
     var pendingCloudPlayback by remember { mutableStateOf<CloudLibraryPlaybackInfo?>(null) }
     var showCloudPlayerChoice by remember { mutableStateOf(false) }
@@ -163,6 +173,23 @@ fun LibraryScreen(
         mutableStateOf(serversViewModel.focusedShelfKey?.let { key -> serversViewModel.focusedIndexes[key]?.let { key to it } })
     }
     var lastFocusedPosterKey by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(openOverview) {
+        if (openOverview) {
+            selectedViewMode = LibraryViewMode.Saved
+            viewModel.selectProviderLibrary(false)
+            viewModel.setSavedFilters(SavedLibraryFilters())
+            lastFocusedPosterKey = null
+            expandedPicker = null
+            pendingPrimaryFocus = true
+            gridState.requestScrollToItem(0)
+            onOverviewOpened()
+        }
+    }
+    val sourceChanging = when (viewMode) {
+        LibraryViewMode.Saved -> uiState.sourceMode != LibrarySourceMode.LOCAL
+        LibraryViewMode.Provider -> uiState.sourceMode == LibrarySourceMode.LOCAL
+        else -> false
+    }
     val visibleItemKeys = remember(uiState.visibleItems) {
         uiState.visibleItems.map { "${it.type}:${it.id}" }
     }
@@ -218,7 +245,8 @@ fun LibraryScreen(
         }
     }
 
-    LaunchedEffect(uiState.isLoading, uiState.sourceMode, uiState.listTabs.size) {
+    LaunchedEffect(uiState.isLoading, sourceChanging, viewMode, uiState.listTabs.size, openOverview) {
+        if (sourceChanging) return@LaunchedEffect
         if (!uiState.isLoading && pendingPrimaryFocus && viewMode == LibraryViewMode.Servers && serverFocusTarget != null) {
             pendingPrimaryFocus = false
         }
@@ -230,7 +258,12 @@ fun LibraryScreen(
             var focused = false
             if (restoreIndex != null && restoreRequester != null) {
                 if (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0) {
-                    runCatching { gridState.scrollToItem(restoreIndex) }
+                    val hasIndexNotice = viewMode == LibraryViewMode.Saved &&
+                        (uiState.indexLoading || uiState.indexUnavailable || uiState.incompleteCatalog)
+                    val hasProviderActions = viewMode == LibraryViewMode.Provider &&
+                        uiState.listManagement != null && uiState.isTrackingAuthenticated
+                    val headerItems = if (hasIndexNotice || hasProviderActions) 4 else 3
+                    runCatching { gridState.scrollToItem(headerItems + restoreIndex) }
                 }
                 focused = runCatching { restoreRequester.requestFocus() }.isSuccess
                 if (!focused) {
@@ -367,9 +400,11 @@ fun LibraryScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             LibraryViewModeRow(
                 modes = viewModes,
+                providerName = uiState.configuredSource.name,
                 selectedMode = viewMode,
                 primaryFocusRequester = primaryFocusRequester,
                 onSelected = { mode ->
+                    viewModel.selectProviderLibrary(mode == LibraryViewMode.Provider)
                     selectedViewMode = mode
                     expandedPicker = null
                 },
@@ -399,8 +434,29 @@ fun LibraryScreen(
             )
         }
 
-        if (viewMode == LibraryViewMode.Saved) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+        if (sourceChanging) {
+            item(span = { GridItemSpan(maxLineSpan) }) { LoadingIndicator() }
+        } else if (viewMode == LibraryViewMode.Saved || viewMode == LibraryViewMode.Provider) {
+            if (viewMode == LibraryViewMode.Saved) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SavedLibraryControls(uiState, viewModel::setSavedFilters,
+                        onCreate = {
+                            viewModel.onOpenManageLists()
+                            viewModel.onStartCreateList()
+                        },
+                        onManage = viewModel::onOpenManageLists)
+                }
+                if (uiState.indexLoading || uiState.indexUnavailable || uiState.incompleteCatalog) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(stringResource(if (uiState.indexLoading) R.string.library_checking_index else R.string.library_index_unavailable))
+                            if (uiState.indexUnavailable || uiState.incompleteCatalog) Button(onClick = viewModel::retrySavedIndex) {
+                                Text(stringResource(R.string.action_retry))
+                            }
+                        }
+                    }
+                }
+            } else item(span = { GridItemSpan(maxLineSpan) }) {
                 LibrarySelectorsRow(
                     sourceMode = uiState.sourceMode,
                     listTabs = uiState.listTabs,
@@ -447,7 +503,7 @@ fun LibraryScreen(
                 )
             }
 
-            if (uiState.listManagement != null && uiState.isTrackingAuthenticated) {
+            if (viewMode == LibraryViewMode.Provider && uiState.listManagement != null && uiState.isTrackingAuthenticated) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     LibraryActionsRow(
                         pending = uiState.pendingOperation,
@@ -459,10 +515,11 @@ fun LibraryScreen(
                 }
             }
 
-            if (uiState.visibleItems.isEmpty()) {
+            if (uiState.visibleItems.isEmpty() && !uiState.indexLoading) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     val selectedTypeLabel = uiState.selectedTypeTab?.let { localizedTypeLabel(it.key) }?.lowercase() ?: stringResource(R.string.library_type_items)
                     val title = when {
+                        viewMode == LibraryViewMode.Saved && uiState.allItems.isNotEmpty() -> stringResource(R.string.discover_no_matches)
                         uiState.sourceMode == LibrarySourceMode.TRAKT && !uiState.isTrackingAuthenticated -> stringResource(R.string.library_empty_trakt_not_auth_title)
                         uiState.sourceMode == LibrarySourceMode.SIMKL && !uiState.isTrackingAuthenticated -> stringResource(R.string.library_empty_simkl_not_auth_title)
                         uiState.sourceMode == LibrarySourceMode.TRAKT || uiState.sourceMode == LibrarySourceMode.MDBLIST -> stringResource(R.string.library_empty_trakt_title, selectedTypeLabel)
@@ -470,6 +527,7 @@ fun LibraryScreen(
                         else -> stringResource(R.string.library_empty_local_title, selectedTypeLabel)
                     }
                     val subtitle = when {
+                        viewMode == LibraryViewMode.Saved && uiState.allItems.isNotEmpty() -> stringResource(R.string.library_try_filters)
                         uiState.sourceMode == LibrarySourceMode.TRAKT && !uiState.isTrackingAuthenticated -> stringResource(R.string.library_empty_trakt_not_auth_subtitle)
                         uiState.sourceMode == LibrarySourceMode.SIMKL && !uiState.isTrackingAuthenticated -> stringResource(R.string.library_empty_simkl_not_auth_subtitle)
                         uiState.sourceMode == LibrarySourceMode.TRAKT || uiState.sourceMode == LibrarySourceMode.MDBLIST -> stringResource(R.string.library_empty_trakt_subtitle)
@@ -493,7 +551,8 @@ fun LibraryScreen(
                 GridContentCard(
                     item = previewForLongPress,
                     posterCardStyle = posterCardStyle,
-                    isWatched = if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds,
+                    isWatched = if (viewMode == LibraryViewMode.Saved) focusKey in uiState.savedWatchedKeys
+                        else if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds,
                     focusRequester = posterFocusRequesters[focusKey],
                     showLabel = true,
                     onFocused = {
@@ -638,7 +697,11 @@ fun LibraryScreen(
     }
 
     if (showDeleteConfirm && uiState.showManageDialog) {
+        val exclusive = uiState.allItems.count { it.listKeys == setOf(uiState.manageSelectedListKey) }
         ConfirmDeleteDialog(
+            message = if (uiState.sourceMode == LibrarySourceMode.LOCAL)
+                androidx.compose.ui.res.pluralStringResource(R.plurals.library_playlist_delete_impact, exclusive, exclusive)
+            else stringResource(R.string.library_delete_subtitle),
             pending = uiState.pendingOperation,
             onConfirm = {
                 showDeleteConfirm = false
@@ -731,6 +794,7 @@ fun LibraryScreen(
 @Composable
 private fun LibraryViewModeRow(
     modes: List<LibraryViewMode>,
+    providerName: String,
     selectedMode: LibraryViewMode,
     primaryFocusRequester: FocusRequester,
     onSelected: (LibraryViewMode) -> Unit,
@@ -761,6 +825,7 @@ private fun LibraryViewModeRow(
                     Text(
                         text = when (mode) {
                             LibraryViewMode.Saved -> stringResource(R.string.library_source_saved)
+                            LibraryViewMode.Provider -> providerName
                             LibraryViewMode.Cloud -> stringResource(R.string.library_source_cloud)
                             LibraryViewMode.Servers -> stringResource(R.string.library_source_servers)
                         }
@@ -1550,6 +1615,7 @@ private fun LibraryActionsRow(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ConfirmDeleteDialog(
+    message: String,
     pending: Boolean,
     onConfirm: () -> Unit,
     onCancel: () -> Unit
@@ -1557,7 +1623,7 @@ private fun ConfirmDeleteDialog(
     NuvioDialog(
         onDismiss = onCancel,
         title = stringResource(R.string.library_delete_title),
-        subtitle = stringResource(R.string.library_delete_subtitle),
+        subtitle = message,
         width = 420.dp
     ) {
         Button(

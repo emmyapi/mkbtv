@@ -16,6 +16,7 @@ import com.nuvio.tv.core.tracking.dispatchTrackingMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.effectiveLibrarySourceMode
 import com.nuvio.tv.core.tracking.providerId
+import com.nuvio.tv.core.tracking.supportsMembershipFor
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.mediaserver.ServerItemRef
@@ -26,9 +27,12 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.ListMembershipSnapshot
+import com.nuvio.tv.domain.model.LocalPlaylist
+import com.nuvio.tv.domain.model.NativeLibraryIdentity
 import com.nuvio.tv.domain.model.SavedLibraryItem
 import com.nuvio.tv.domain.model.LibraryListPrivacy
 import com.nuvio.tv.domain.repository.LibraryRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,6 +40,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -105,63 +110,86 @@ class LibraryRepositoryImpl @Inject constructor(
         }
         .distinctUntilChanged()
 
-    override val libraryItems: Flow<List<LibraryEntry>> = sourceMode
-        .flatMapLatest { mode ->
-            val provider = mode.providerId?.let(trackingProviders::provider)
-            if (provider != null) {
-                provider.items
-            } else {
-                libraryPreferences.libraryItems.map { items ->
-                    items.map { saved ->
-                        LibraryEntry(
-                            id = saved.id,
-                            type = saved.type,
-                            name = saved.name,
-                            poster = saved.poster,
-                            posterShape = saved.posterShape,
-                            background = saved.background,
-                            logo = saved.logo,
-                            description = saved.description,
-                            releaseInfo = saved.releaseInfo,
-                            imdbRating = saved.imdbRating,
-                            genres = saved.genres,
-                            addonBaseUrl = saved.addonBaseUrl,
-                            listedAt = saved.addedAt,
-                            rawPosterUrl = saved.poster
-                        )
-                    }
-                }
-            }
+    override val localLibraryItems = libraryPreferences.libraryItems.map { items ->
+        items.map { saved ->
+            val memberships = saved.memberships
+            LibraryEntry(
+                id = saved.id,
+                type = saved.type,
+                name = saved.name,
+                poster = saved.poster,
+                posterShape = saved.posterShape,
+                background = saved.background,
+                logo = saved.logo,
+                description = saved.description,
+                releaseInfo = saved.releaseInfo,
+                imdbRating = saved.imdbRating,
+                genres = saved.genres,
+                addonBaseUrl = saved.addonBaseUrl,
+                imdbId = saved.imdbId,
+                tmdbId = saved.tmdbId,
+                listKeys = memberships.keys,
+                listedAt = saved.addedAt,
+                listAddedAt = memberships,
+                rawPosterUrl = saved.poster,
+                movieDistributionDates = saved.movieDistributionDates
+            )
         }
-        .distinctUntilChanged()
+    }.distinctUntilChanged()
 
-    override val listTabs: Flow<List<LibraryListTab>> = sourceMode
-        .flatMapLatest { mode ->
-            mode.providerId
-                ?.let(trackingProviders::provider)
-                ?.tabs
-                ?: flowOf(emptyList())
-        }
-        .distinctUntilChanged()
+    override val localListTabs = libraryPreferences.playlists.map { playlists ->
+        listOf(LibraryListTab(
+            key = LOCAL_LIBRARY_LIST_KEY,
+            title = appContext.getString(R.string.library_picker_watch_later),
+            type = LibraryListTab.Type.WATCHLIST
+        )) + playlists.map(LocalPlaylist::toTab)
+    }.distinctUntilChanged()
+
+    override val libraryItems: Flow<List<LibraryEntry>> = sourceMode.flatMapLatest { mode ->
+        mode.providerId?.let(trackingProviders::provider)?.items ?: localLibraryItems
+    }.distinctUntilChanged()
+
+    override val listTabs: Flow<List<LibraryListTab>> = sourceMode.flatMapLatest { mode ->
+        mode.providerId?.let(trackingProviders::provider)?.tabs ?: localListTabs
+    }.distinctUntilChanged()
 
     override val membershipListTabs: Flow<List<LibraryListTab>> = combine(
-        trackingProviders.providers().map { provider ->
+        listOf(localListTabs) + trackingProviders.providers().map { provider ->
             provider.isAuthenticated.flatMapLatest { authenticated ->
                 if (authenticated) provider.tabs else flowOf(emptyList())
+            }.catch { error ->
+                if (error is CancellationException) throw error
+                emit(emptyList())
             }
         }
-    ) { tabs -> tabs.flatMap { it } }
-        .distinctUntilChanged()
+    ) { tabs -> tabs.flatMap { it } }.distinctUntilChanged()
 
-    override fun isInLibrary(itemId: String, itemType: String): Flow<Boolean> {
-        return sourceMode.flatMapLatest { mode ->
-            val provider = mode.providerId?.let(trackingProviders::provider)
-            if (provider != null) {
-                provider.observeMembership(itemId, itemType)
-                    .map { memberships -> memberships.isNotEmpty() }
-            } else {
-                libraryPreferences.isInLibrary(itemId = itemId, itemType = itemType)
+    override fun isInLibrary(itemId: String, itemType: String): Flow<Boolean> =
+        isInLibrary(LibraryEntryInput(itemId, itemType, title = ""))
+
+    override fun isInLibrary(item: LibraryEntryInput): Flow<Boolean> {
+        val local = libraryPreferences.observeMembership(item.itemId, item.itemType, item.imdbId, item.tmdbId)
+            .map { it.isNotEmpty() }.distinctUntilChanged()
+        if (item.isServerItem) return local
+
+        val trackingItem = item.forTracking()
+        val connected = trackingProviders.providers().map { provider ->
+            provider.isAuthenticated.flatMapLatest { authenticated ->
+                if (!authenticated) flowOf(false)
+                else combine(provider.tabs, provider.observeMembership(trackingItem.itemId, item.itemType)) { tabs, keys ->
+                    tabs.any { tab -> tab.key in keys && tab.supportsMembershipFor(item.itemType) }
+                }.catch { error ->
+                    if (error is CancellationException) throw error
+                    emit(false)
+                }
+            }.catch { error ->
+                if (error is CancellationException) throw error
+                emit(false)
             }
+        }
+        return local.flatMapLatest { saved ->
+            if (saved || connected.isEmpty()) flowOf(saved)
+            else combine(connected) { memberships -> memberships.any { it } }
         }.distinctUntilChanged()
     }
 
@@ -178,7 +206,7 @@ class LibraryRepositoryImpl @Inject constructor(
                     }
                 }
             } else {
-                libraryPreferences.isInLibrary(itemId = itemId, itemType = itemType)
+                libraryPreferences.observeMembership(itemId, itemType).map { LOCAL_LIBRARY_LIST_KEY in it }
             }
         }.distinctUntilChanged()
     }
@@ -187,70 +215,61 @@ class LibraryRepositoryImpl @Inject constructor(
         item: LibraryEntryInput,
         confirmedRemovalProviders: Set<TrackingProviderId>
     ): TrackingMembershipApplyResult {
+        val profileId = profileManager.activeProfileId.value
         val provider = sourceMode.first().providerId?.let(trackingProviders::provider)
         if (provider != null) {
             if (item.isServerItem) throw IllegalStateException(appContext.getString(R.string.library_server_title_unsupported))
-            val currentMembership = provider.getMembershipSnapshot(item).listMembership
+            val trackingItem = item.forTracking()
+            val currentMembership = provider.getMembershipSnapshot(trackingItem).listMembership
             val changes = ListMembershipChanges(
                 provider.toggledDefaultMembership(currentMembership)
             )
-            val confirmation = provider.membershipRemovalConfirmation(item, changes)
+            val confirmation = provider.membershipRemovalConfirmation(trackingItem, changes)
                 ?.takeUnless { required ->
                     required.providerId in confirmedRemovalProviders
                 }
             if (confirmation != null) {
                 return TrackingMembershipApplyResult(listOf(confirmation))
             }
+            check(profileManager.activeProfileId.value == profileId) { "Profile changed" }
             provider.applyMembershipChanges(
-                item = item,
+                item = trackingItem,
                 changes = changes,
                 destructiveRemovalConfirmed = provider.providerId in confirmedRemovalProviders
             )
             return TrackingMembershipApplyResult()
         }
 
-        val profileId = profileManager.activeProfileId.value
-        val isInLocal = libraryPreferences.containsItem(
-            itemId = item.itemId,
-            itemType = item.itemType,
-            profileId = profileId
-        )
-        if (isInLocal) {
-            libraryPreferences.removeItem(
-                itemId = item.itemId,
-                itemType = item.itemType,
-                profileId = profileId
-            )
-        } else {
-            libraryPreferences.addItem(
-                item = item.toSavedLibraryItem(),
-                profileId = profileId
-            )
+        check(profileManager.activeProfileId.value == profileId) { "Profile changed" }
+        val syncNeeded = libraryPreferences.editMemberships(item.toSavedLibraryItem(), profileId) { selected ->
+            mapOf(LOCAL_LIBRARY_LIST_KEY to (LOCAL_LIBRARY_LIST_KEY !in selected))
         }
-        triggerRemoteSync(profileId)
+        if (syncNeeded) triggerRemoteSync(profileId)
         return TrackingMembershipApplyResult()
     }
 
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
         val profileId = profileManager.activeProfileId.value
-        val inLocal = libraryPreferences.containsItem(
-            itemId = item.itemId,
-            itemType = item.itemType,
-            profileId = profileId
-        )
+        val membership = libraryPreferences.membershipSnapshot(item.itemId, item.itemType, profileId, item.imdbId, item.tmdbId).toMutableMap()
 
-        val membership = mutableMapOf<String, Boolean>()
-        membership[LOCAL_LIBRARY_LIST_KEY] = inLocal
-
+        val unavailable = mutableSetOf<TrackingProviderId>()
         if (!item.isServerItem) {
+            val trackingItem = item.forTracking()
             trackingProviders.providers().forEach { provider ->
-                if (provider.isAuthenticated.first()) {
-                    membership.putAll(provider.getMembershipSnapshot(item).listMembership)
+                try {
+                    if (provider.isAuthenticated.first()) {
+                        membership.putAll(provider.getMembershipSnapshot(trackingItem).listMembership)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    unavailable.add(provider.providerId)
                 }
             }
         }
 
-        return ListMembershipSnapshot(listMembership = membership)
+        check(profileManager.activeProfileId.value == profileId) { "Profile changed" }
+        return ListMembershipSnapshot(listMembership = membership, unavailableProviders = unavailable)
     }
 
     override suspend fun applyMembershipChanges(
@@ -258,50 +277,37 @@ class LibraryRepositoryImpl @Inject constructor(
         changes: ListMembershipChanges,
         confirmedRemovalProviders: Set<TrackingProviderId>
     ): TrackingMembershipApplyResult {
+        val profileId = profileManager.activeProfileId.value
         val desired = changes.desiredMembership
         val requestedChanges = trackingProviders.providers().mapNotNull { provider ->
-            if (!provider.isAuthenticated.first()) return@mapNotNull null
-            desired.filterKeys(provider::recognizesListKey)
-                .takeIf { providerMembership -> providerMembership.isNotEmpty() }
-                ?.let { provider to ListMembershipChanges(it) }
+            val providerMembership = desired.filterKeys(provider::recognizesListKey)
+            if (providerMembership.isEmpty()) return@mapNotNull null
+            check(provider.isAuthenticated.first()) { "Connect the library account first" }
+            provider to ListMembershipChanges(providerMembership)
         }
         if (item.isServerItem && requestedChanges.any { (_, change) -> change.desiredMembership.values.any { it } }) {
             throw IllegalStateException(appContext.getString(R.string.library_server_title_unsupported))
         }
         val providerChanges = if (item.isServerItem) emptyList() else requestedChanges
+        val trackingItem = item.forTracking()
         val requiredConfirmations = providerChanges.mapNotNull { (provider, providerChange) ->
-            provider.membershipRemovalConfirmation(item, providerChange)
+            provider.membershipRemovalConfirmation(trackingItem, providerChange)
                 ?.takeUnless { confirmation -> confirmation.providerId in confirmedRemovalProviders }
         }
         if (requiredConfirmations.isNotEmpty()) {
             return TrackingMembershipApplyResult(requiredConfirmations)
         }
 
-        val profileId = profileManager.activeProfileId.value
-        val localDesired = desired[LOCAL_LIBRARY_LIST_KEY] == true
-        val currentlyInLocal = libraryPreferences.containsItem(
-            itemId = item.itemId,
-            itemType = item.itemType,
-            profileId = profileId
-        )
-        if (localDesired != currentlyInLocal) {
-            if (localDesired) {
-                libraryPreferences.addItem(
-                    item = item.toSavedLibraryItem(),
-                    profileId = profileId
-                )
-            } else {
-                libraryPreferences.removeItem(
-                    itemId = item.itemId,
-                    itemType = item.itemType,
-                    profileId = profileId
-                )
-            }
-            triggerRemoteSync(profileId)
+        check(profileManager.activeProfileId.value == profileId) { "Profile changed" }
+        val localChanges = desired.filterKeys { it == LOCAL_LIBRARY_LIST_KEY || it.startsWith(LocalPlaylist.KEY_PREFIX) }
+        if (localChanges.isNotEmpty()) {
+            val syncNeeded = libraryPreferences.editMemberships(item.toSavedLibraryItem(), profileId) { localChanges }
+            if (syncNeeded) triggerRemoteSync(profileId)
         }
 
+        check(profileManager.activeProfileId.value == profileId) { "Profile changed" }
         val failures = dispatchTrackingMembershipChanges(
-            item = item,
+            item = trackingItem,
             providerChanges = providerChanges,
             confirmedRemovalProviders = confirmedRemovalProviders
         )
@@ -311,8 +317,12 @@ class LibraryRepositoryImpl @Inject constructor(
         return TrackingMembershipApplyResult()
     }
 
+    override suspend fun createLocalPlaylist(name: String): LibraryListTab =
+        libraryPreferences.createPlaylist(name, profileManager.activeProfileId.value).toTab()
+
     override suspend fun createPersonalList(name: String, description: String?, privacy: LibraryListPrivacy, source: LibrarySourceMode) {
-        selectedListManager(source).createList(name, description, privacy)
+        if (source == LibrarySourceMode.LOCAL) createLocalPlaylist(name)
+        else selectedListManager(source).createList(name, description, privacy)
     }
 
     override suspend fun updatePersonalList(
@@ -322,15 +332,18 @@ class LibraryRepositoryImpl @Inject constructor(
         privacy: LibraryListPrivacy,
         source: LibrarySourceMode
     ) {
-        selectedListManager(source, listOf(listId)).updateList(listId, name, description, privacy)
+        if (source == LibrarySourceMode.LOCAL) libraryPreferences.renamePlaylist(listId, name, profileManager.activeProfileId.value)
+        else selectedListManager(source, listOf(listId)).updateList(listId, name, description, privacy)
     }
 
     override suspend fun deletePersonalList(listId: String, source: LibrarySourceMode) {
-        selectedListManager(source, listOf(listId)).deleteList(listId)
+        if (source == LibrarySourceMode.LOCAL) libraryPreferences.deletePlaylist(listId, profileManager.activeProfileId.value)
+        else selectedListManager(source, listOf(listId)).deleteList(listId)
     }
 
     override suspend fun reorderPersonalLists(orderedListIds: List<String>, source: LibrarySourceMode) {
-        selectedListManager(source, orderedListIds).reorderLists(orderedListIds)
+        if (source == LibrarySourceMode.LOCAL) libraryPreferences.reorderPlaylists(orderedListIds, profileManager.activeProfileId.value)
+        else selectedListManager(source, orderedListIds).reorderLists(orderedListIds)
     }
 
     private suspend fun selectedListManager(
@@ -367,7 +380,10 @@ class LibraryRepositoryImpl @Inject constructor(
             imdbRating = imdbRating,
             genres = genres,
             addonBaseUrl = addonBaseUrl,
-            logo = logo
+            logo = logo,
+            imdbId = imdbId,
+            tmdbId = tmdbId,
+            movieDistributionDates = movieDistributionDates
         )
     }
 
@@ -384,6 +400,13 @@ class LibraryRepositoryImpl @Inject constructor(
             }.onFailure { Log.w("LibraryRepo", "Logo hydration failed for ${entry.id}", it) }
         }
     }
+}
+
+private fun LibraryEntryInput.forTracking(): LibraryEntryInput {
+    if (isServerItem) return this
+    val identity = NativeLibraryIdentity(itemId, itemType, imdbId, tmdbId)
+    val externalId = identity.imdb ?: identity.tmdb?.let { "tmdb:$it" } ?: itemId
+    return copy(itemId = externalId, imdbId = identity.imdb, tmdbId = identity.tmdb)
 }
 
 private val LibraryEntryInput.isServerItem: Boolean

@@ -28,8 +28,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
-import com.nuvio.tv.domain.model.LibraryEntryInput
-import com.nuvio.tv.domain.model.ListMembershipChanges
+import com.nuvio.tv.ui.components.posteroptions.LibraryPlaylistPicker
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.data.repository.MDBListRepository
@@ -315,9 +314,9 @@ class HomeViewModel @Inject constructor(
     internal var movieWatchedBatchJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
     internal var seriesWatchedObserverJob: Job? = null
-    internal var libraryTabsObserverJob: Job? = null
-    internal var activePosterListPickerInput: LibraryEntryInput? = null
-    internal var pendingPosterListPickerChanges: ListMembershipChanges? = null
+    internal val playlistPicker by lazy {
+        LibraryPlaylistPicker(libraryRepository, profileManager.activeProfileId, viewModelScope)
+    }
     @Volatile
     internal var externalMetaPrefetchEnabled: Boolean = false
     @Volatile
@@ -378,7 +377,6 @@ class HomeViewModel @Inject constructor(
             loadFollowAddonsOrder()
             loadDisabledHomeCatalogPreference()
             loadCustomCatalogTitles()
-            observeLibraryState()
             observeTmdbSettings()
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()

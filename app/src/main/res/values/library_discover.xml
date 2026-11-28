@@ -1,0 +1,13 @@
+<resources>
+    <string name="library_playlist_filter">Playlist</string>
+    <string name="library_new_playlist">New playlist</string>
+    <string name="library_manage_playlists">Manage playlists</string>
+    <string name="library_recently_added">Recently added</string>
+    <string name="library_checking_index">Checking catalog details…</string>
+    <string name="library_index_unavailable">Some catalog details are unavailable.</string>
+    <string name="library_try_filters">Choose another playlist or adjust your filters.</string>
+    <plurals name="library_playlist_delete_impact">
+        <item quantity="one">%d title belongs only to this playlist and will leave your library.</item>
+        <item quantity="other">%d titles belong only to this playlist and will leave your library.</item>
+    </plurals>
+</resources>

@@ -20,7 +20,7 @@ fun LibraryListTab.localizedMembershipTitle(): String {
 @Composable
 fun LibraryListTab.localizedTitle(): String {
     return when {
-        key == LOCAL_LIBRARY_LIST_KEY -> title
+        key == LOCAL_LIBRARY_LIST_KEY -> stringResource(R.string.library_picker_watch_later)
         key == "simkl:status:watching" -> stringResource(R.string.library_status_watching)
         key == "simkl:status:plantowatch" -> stringResource(R.string.library_status_plan_to_watch)
         key == "simkl:status:hold" -> stringResource(R.string.library_status_on_hold)

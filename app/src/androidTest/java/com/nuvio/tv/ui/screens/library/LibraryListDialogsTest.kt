@@ -39,7 +39,18 @@ class LibraryListDialogsTest {
         )
         composeRule.setContent {
             NuvioTheme {
-                PosterListPickerDialog("Lists", tabs, emptyMap(), false, null, { selected = it }, {}, {})
+                PosterListPickerDialog(
+                    title = "Lists",
+                    tabs = tabs,
+                    membership = emptyMap(),
+                    isPending = false,
+                    error = null,
+                    onToggle = { selected = it },
+                    onSave = {},
+                    onDismiss = {},
+                    onCreate = {},
+                    defaultsToWatchLater = false
+                )
             }
         }
         val watchlist = context.getString(R.string.library_watchlist)

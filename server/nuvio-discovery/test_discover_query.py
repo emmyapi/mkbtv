@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import discover_query as dq
 from movie_releases import MovieReleases
+from library_facts import library_facts
 
 
 class DiscoverQueries(unittest.TestCase):
@@ -64,6 +65,120 @@ class DiscoverQueries(unittest.TestCase):
 
     def call(self, profile=1, resolve=None, releases=None, **params):
         return dq.query_page(params, profile=profile, directory=self.data, resolve=resolve, releases=releases)
+
+    def test_saved_library_only_returns_requested_typed_titles_with_discover_evidence(self):
+        releases = MovieReleases(self.data)
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release(tmdb_id,imdb_id,home_date) VALUES ('880','tt0000003','2019-02-01')")
+        with sqlite3.connect(self.data / "catalog.sqlite3") as db:
+            db.execute("UPDATE title_search SET surface='spiderman2' || char(10) || 'edderkoppen' WHERE rowid=2")
+            db.execute("INSERT INTO title(id,imdb_id,type,year,rating,votes) VALUES(6,'tt0000006','movie',2020,7,12)")
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO feed VALUES ('popular','v1',?,'nuvio-chart')", (int(time.time()),))
+            db.execute("INSERT INTO member VALUES ('popular','movie',NULL,2,'tmdb:880','Native film',2018,880,'movie')")
+            db.execute("INSERT INTO member VALUES ('popular','movie',NULL,5,'tmdb:77','Another film',2020,77,'movie')")
+        movie, series = "movie", "series"
+        titles = [{"type": kind, "id": uid} for kind, uid in [
+            (movie, "tmdb:880"), (series, "tmdb:77"), (movie, "tt0000002"), (series, "tt0000004"),
+            (movie, "tt0000006"), (movie, "watchmode:13"), (series, "tt0000003")]]
+        def call(keyword=""):
+            reply = library_facts({"titles": titles, "keyword": keyword}, self.data, releases)
+            self.assertEqual({"hulu", "trending", "popular", "genre:soap"}, set(reply["availableCatalogs"]))
+            self.assertTrue(reply["releaseAvailable"])
+            facts = {(f["identity"]["type"], f["identity"]["id"]): f for f in reply["facts"]}
+            self.assertEqual({(t["type"], t["id"]) for t in titles}, set(facts))
+            return facts
+
+        with patch.object(releases, "lookup", wraps=releases.lookup) as lookup:
+            facts = call("Renée Test")
+            lookup.assert_not_called()
+        film = facts[movie, "tmdb:880"]
+        self.assertEqual(("tt0000003", 2017, 9.1, 4), (film["imdbId"], film["year"], film["rating"], film["votes"]))
+        self.assertEqual({"hulu": 1, "popular": 2, "trending": 1}, film["ranks"])
+        self.assertEqual({"status": "home", "homeDate": "2019-02-01"}, film["release"])
+        self.assertEqual(film["ranks"], facts[movie, "watchmode:13"]["ranks"])
+        self.assertEqual({"hulu": 2}, facts[series, "tmdb:77"]["ranks"])
+        self.assertNotIn("release", facts[series, "tmdb:77"])
+        self.assertEqual(["Drama", "Soap"], facts[series, "tt0000004"]["genres"])
+        self.assertEqual({}, facts[series, "tt0000003"]["ranks"])
+        self.assertTrue(film["keywordMatch"])  # exact credited cast name
+        self.assertTrue(facts[series, "tmdb:77"]["keywordMatch"])  # native title
+        self.assertFalse(call("Renée")[movie, "tmdb:880"]["keywordMatch"])
+        self.assertTrue(call("EDDER-KOP")[movie, "tt0000002"]["keywordMatch"])  # normalized alias substring
+        self.assertTrue(call("ed")[movie, "tt0000002"]["keywordMatch"])
+        self.assertFalse(facts[movie, "tt0000006"]["keywordMatch"])
+        self.assertGreater(film["weightedRating"], 0.0)
+
+    def test_saved_library_release_aliases_and_publication_change_only_with_facts(self):
+        releases = MovieReleases(self.data)
+        request = {"titles": [{"type": "movie", "id": "tt0000003", "tmdbId": 42},
+                              {"type": "movie", "id": "tmdb:42"}]}
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO feed VALUES ('popular','v1',?,'nuvio-chart')", (int(time.time()),))
+            db.execute("INSERT INTO member VALUES ('popular','movie',NULL,2,'tmdb:42','Native film',2014,42,'movie')")
+        baseline = library_facts(request, self.data, releases)
+        with patch("movie_releases.fetch_dates", return_value=("42", "tt0000002", None, "2014-01-01", None)):
+            releases._refresh("tt0000002")
+            with sqlite3.connect(releases.path) as db:
+                db.execute("DELETE FROM movie_release_check")
+            reread = library_facts(request, self.data, releases)
+            releases._refresh("tt0000002")
+        self.assertNotEqual(baseline["snapshot"], reread["snapshot"])
+        self.assertEqual(reread, library_facts(request, self.data, releases))
+        self.assertNotIn("release", reread["facts"][0])
+        self.assertNotIn("popular", reread["facts"][0]["ranks"])
+        self.assertEqual(2, reread["facts"][1]["ranks"]["popular"])
+        self.assertEqual(("tt0000002", 8.9, "home"), (
+            reread["facts"][1]["imdbId"], reread["facts"][1]["rating"], reread["facts"][1]["release"]["status"]))
+
+    def test_saved_library_excludes_stale_feeds_and_ambiguous_native_links(self):
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO member VALUES ('trending','movie','tt0000002',5,'tt0000002','Spider-Man 2',2014,880,'movie')")
+            db.execute("INSERT INTO member VALUES ('trending','movie',NULL,1,'tmdb:100','Native film',2014,100,'movie')")
+        titles = [{"type": "movie", "id": "tmdb:880"}, {"type": "movie", "id": "tt0000003", "tmdbId": 100}]
+        facts = library_facts({"titles": titles}, self.data)["facts"]
+        self.assertIsNone(facts[0]["imdbId"])
+        self.assertEqual({}, facts[0]["ranks"])
+        self.assertEqual({"hulu": 1, "trending": 1}, facts[1]["ranks"])
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("UPDATE feed SET updated_at=0 WHERE key='hulu'")
+        refreshed = library_facts({"titles": titles}, self.data)
+        self.assertNotIn("hulu", refreshed["availableCatalogs"])
+        self.assertEqual("tt0000002", refreshed["facts"][0]["imdbId"])
+
+    def test_saved_watched_aliases_are_typed_verified_and_skip_conflicts(self):
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO member VALUES ('trending','series','tt0000004',3,'tmdb:880','TV',2017,880,'tv')")
+            db.execute("INSERT INTO member VALUES ('trending','movie',NULL,4,'tmdb:123','Other',2017,123,'movie')")
+        releases = MovieReleases(self.data)
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release(tmdb_id,imdb_id) VALUES ('444','tt0000002')")
+        request = {"titles": [{"type": "movie", "id": "tt0000003", "tmdbId": 123},
+                              {"type": "series", "id": "tt0000004"}, {"type": "movie", "id": "tt0000002"},
+                              {"type": "series", "id": "tt0000002"}, {"type": "movie", "id": "tmdb:880"}]}
+        def read_aliases():
+            return {(f["identity"]["type"], f["identity"]["id"]): f["aliases"]
+                    for f in library_facts(request, self.data, releases)["facts"]}
+
+        aliases = read_aliases()
+        self.assertEqual(["tmdb:880", "watchmode:13"], aliases["movie", "tt0000003"])
+        self.assertEqual(["tmdb:880"], aliases["series", "tt0000004"])
+        self.assertEqual(["tmdb:444"], aliases["movie", "tt0000002"])
+        self.assertEqual([], aliases["series", "tt0000002"])
+        self.assertEqual(["tt0000003", "watchmode:13"], aliases["movie", "tmdb:880"])
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO member VALUES ('trending','movie','tt0000001',8,'watchmode:13','Conflict',1999,880,'movie')")
+        aliases = read_aliases()
+        self.assertEqual([], aliases["movie", "tt0000003"])
+        self.assertEqual(["tmdb:880"], aliases["series", "tt0000004"])
+        self.assertEqual([], aliases["movie", "tmdb:880"])
+
+    def test_watched_tmdb_alias_can_resolve_from_typed_metadata_cache(self):
+        request = {"titles": [{"type": kind, "id": "tmdb:321"} for kind in ("movie", "series")]}
+        cache = {("movie", "tmdb:321"): "tt0000001"}
+        reply = library_facts(request, self.data, cached_imdb=lambda kind, uid: cache.get((kind, uid)))
+        aliases = {f["identity"]["type"]: f["aliases"] for f in reply["facts"]}
+        self.assertEqual({"movie": ["tt0000001"], "series": []}, aliases)
 
     def test_known_release_filter_precedes_counts_sort_and_paging(self):
         releases = MovieReleases(self.data)
@@ -376,6 +491,15 @@ class DiscoverQueries(unittest.TestCase):
                 http.close()
 
         with patch.object(dq, "DATA", self.data):
+            facts_url = {"resource": "library-facts.json"}
+            valid = {"titles": [{"type": "movie", "id": "tt0000003"}], "keyword": "spider man"}
+            self.assertEqual(404, post("missing", valid, **facts_url)[0])
+            for bad in ({}, {"titles": []}, {"titles": valid["titles"] * 101}, {"titles": [None]},
+                        {"titles": [{"id": "tt3", "type": "channel"}]}, {**valid, "profile": 1}):
+                self.assertEqual(400, post("unitA", bad, **facts_url)[0])
+            status, body = post("unitA", valid, **facts_url)
+            self.assertEqual(200, status)
+            self.assertEqual([True], [f["keywordMatch"] for f in body["facts"]])
             release_url = {"resource": "movie-releases.json"}
             self.assertEqual(404, post("missing", {"ids": []}, **release_url)[0])
             for bad in ({"ids": ["imdb:42"]}, {"ids": ["tt1"] * 101}, {"ids": [42]}, {"profile": 2, "ids": []}):

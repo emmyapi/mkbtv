@@ -71,6 +71,8 @@ The TV displays regular search results immediately and requests release informat
 
 Series cards in Search, See All and Discover show the age rating on the left and the series status on the right, using the same labels as the detail page. Visible cards fill missing fields in the background. A card shows whichever fields its metadata provides.
 
+The Saved library uses the same indexes for catalog membership, cast and alternate-title search, chart order and known release dates. The TV requests facts for batches of up to 100 IDs through the profile's `library-facts.json` endpoint on its configured Discovery server. Update `library_facts.py`, `discover_query.py`, `movie_releases.py` and `discovery.py` together when updating an existing server.
+
 ## Long-term For You
 
 Each profile gets one **For You** row of up to 60 films and whole series. Discovery combines the complete verified account export with recent completions reported by the TV. Once IMDb and TMDB identifiers have been matched, each distinct watched work contributes one vote, split across its genres. Finishing several episodes of the same series gives it one vote. A newly completed episode can still refresh the suggestions.

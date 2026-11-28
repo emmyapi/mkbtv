@@ -22,6 +22,12 @@ cd mkbtv
 
 The mkbtv launcher is in the `fullDebug` variant. Gradle writes the APKs under `app/build/outputs/apk/full/debug/`. Choose the APK for your TV’s CPU architecture or the universal APK. A fresh checkout uses the Android SDK’s local debug signing key. To update an existing installation, supply the keystore that signed it. For cloud login and optional provider integrations, use your own settings in `local.properties`. Available property names are listed in [the example configuration](local.example.properties).
 
+## Library playlists
+
+Open **Library → Saved** to see every saved film and series once. The **Playlist** filter starts on **All**. Choose **New playlist** to create a list or open a title and press **+**. Press **Save** to use **Watch Later**, or select one or more playlists yourself. Press **✓** to change the selection. Clearing the last membership removes the title from Saved. **Back** discards the pending membership changes.
+
+Saved supports Discover's title and cast search, catalogs, type, genre, watch status, release period, IMDb rating, movie release stages and sort orders. **Recently added** uses the original save date in All and the date the title joined a particular playlist inside that playlist. Existing saved titles appear in Watch Later. Custom playlists belong to the active profile on this device. Connected tracking services keep their own lists.
+
 ## Run the optional services
 
 The [server setup guide](server/README.md) covers the shared catalog, personalized Discovery addon, watch-history export and TorBox Home integration. It describes the database import, nightly updates and registration for each profile.

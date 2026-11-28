@@ -120,12 +120,8 @@ class TraktLibraryService @Inject constructor(
     ) {
         ensureFresh()
         val current = getMembershipSnapshot(item).listMembership
-        val desired = changes.desiredMembership
-        val keys = (current.keys + desired.keys).distinct()
-
-        keys.forEach { listKey ->
+        changes.desiredMembership.forEach { (listKey, after) ->
             val before = current[listKey] == true
-            val after = desired[listKey] == true
             if (before == after) return@forEach
 
             if (listKey == WATCHLIST_KEY) {

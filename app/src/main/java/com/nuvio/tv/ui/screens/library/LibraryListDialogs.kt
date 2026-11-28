@@ -334,30 +334,32 @@ internal fun ListEditorDialog(
             )
         }
 
-        Text(
-            text = stringResource(R.string.library_list_privacy),
-            style = MaterialTheme.typography.bodyMedium,
-            color = NuvioTheme.extendedColors.textSecondary
-        )
+        if (capabilities.privacyOptions.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.library_list_privacy),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.extendedColors.textSecondary
+            )
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(capabilities.privacyOptions, key = { it.name }) { privacy ->
-                val selected = privacy == state.privacy
-                Button(
-                    onClick = { onPrivacyChanged(privacy) },
-                    enabled = !pending,
-                    modifier = Modifier.semantics {
-                        role = Role.RadioButton
-                        // `selected` is also a local val here, so compare explicitly
-                        // instead of reading the write-only semantics property.
-                        this.selected = privacy == state.privacy
-                    },
-                    colors = ButtonDefaults.colors(
-                        containerColor = if (selected) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
-                        contentColor = NuvioTheme.colors.TextPrimary
-                    )
-                ) {
-                    Text(privacy.apiValue.replaceFirstChar { it.uppercase() })
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(capabilities.privacyOptions, key = { it.name }) { privacy ->
+                    val selected = privacy == state.privacy
+                    Button(
+                        onClick = { onPrivacyChanged(privacy) },
+                        enabled = !pending,
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            // `selected` is also a local val here, so compare explicitly
+                            // instead of reading the write-only semantics property.
+                            this.selected = privacy == state.privacy
+                        },
+                        colors = ButtonDefaults.colors(
+                            containerColor = if (selected) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                            contentColor = NuvioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(privacy.apiValue.replaceFirstChar { it.uppercase() })
+                    }
                 }
             }
         }

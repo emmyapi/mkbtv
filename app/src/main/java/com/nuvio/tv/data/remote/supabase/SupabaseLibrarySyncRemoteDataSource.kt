@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.remote.supabase
 
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.sync.SyncClientIdentity
 import com.nuvio.tv.core.sync.library.LIBRARY_MUTATION_BATCH_SIZE
 import com.nuvio.tv.core.sync.library.LibrarySyncRemoteDataSource
@@ -234,7 +235,7 @@ private fun SavedLibraryItem.toMutationDto(): LibraryMutationDto {
         imdbRating = imdbRating,
         genres = genres,
         addonBaseUrl = addonBaseUrl,
-        addedAt = addedAt
+        addedAt = memberships.getValue(LOCAL_LIBRARY_LIST_KEY)
     )
 }
 

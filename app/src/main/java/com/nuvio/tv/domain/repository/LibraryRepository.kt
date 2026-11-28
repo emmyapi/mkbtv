@@ -14,11 +14,14 @@ import kotlinx.coroutines.flow.Flow
 interface LibraryRepository {
     val sourceMode: Flow<LibrarySourceMode>
     val isSyncing: Flow<Boolean>
+    val localLibraryItems: Flow<List<LibraryEntry>>
+    val localListTabs: Flow<List<LibraryListTab>>
     val libraryItems: Flow<List<LibraryEntry>>
     val listTabs: Flow<List<LibraryListTab>>
     val membershipListTabs: Flow<List<LibraryListTab>>
 
     fun isInLibrary(itemId: String, itemType: String): Flow<Boolean>
+    fun isInLibrary(item: LibraryEntryInput): Flow<Boolean>
     fun isInWatchlist(itemId: String, itemType: String): Flow<Boolean>
 
     suspend fun toggleDefault(
@@ -31,6 +34,8 @@ interface LibraryRepository {
         changes: ListMembershipChanges,
         confirmedRemovalProviders: Set<TrackingProviderId> = emptySet()
     ): TrackingMembershipApplyResult
+
+    suspend fun createLocalPlaylist(name: String): LibraryListTab
 
     suspend fun createPersonalList(
         name: String,

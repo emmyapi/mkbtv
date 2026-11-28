@@ -80,6 +80,14 @@ EXTRA_GENRES = {"war & politics", "kids", "soap"}
 CONTENT_ID = re.compile(r"(?:tt[0-9]{1,12}|(?:tmdb|watchmode):[0-9]{1,12})\Z")
 WORKERS = BoundedSemaphore(3)
 RELEASE_CANDIDATES = 24
+# Match release_card's precedence at the same UTC day boundary. A future home
+# date alone can announce a direct-to-streaming title.
+RELEASE_WINDOWS = {
+    "upcoming": "((theatrical_date>? AND (home_date IS NULL OR home_date>?)) "
+                "OR (theatrical_date IS NULL AND home_date>?))",
+    "cinema": "theatrical_date<=? AND (home_date IS NULL OR home_date>?)",
+    "home": "home_date<=?",
+}
 
 
 class QueryError(Exception):
@@ -165,6 +173,7 @@ def options(request):
     hide = request.get("hide_unreleased", False)
     if type(hide) is not bool:
         invalid()
+    release_window = text_field(request, "releaseWindow", "any", {"any", *RELEASE_WINDOWS})
     seen = set()
     if watch != "any":
         for typ, key in (("movie", "watched_movies"), ("series", "watched_series")):
@@ -196,10 +205,10 @@ def options(request):
         first,
         last,
         number(request, "min_rating", 0, 10),
-        date.today().year if hide else None,
+        date.today().year if hide and release_window != "upcoming" else None,
         sort,
         watch,
-        text_field(request, "releaseWindow", "any", {"any", "home", "cinema"}),
+        release_window,
         tuple(sorted(seen)),
         offset,
         limit,
@@ -387,9 +396,8 @@ def filter_releases(db, opt, clauses, path, today):
     db.execute("ATTACH ? AS releases", (uri(path),))
     db.execute("CREATE TEMP TABLE release_matches(id INTEGER PRIMARY KEY)")
     if opt.kind != "series":
-        window = ("home_date<=?" if opt.release_window == "home" else
-                  "theatrical_date<=? AND (home_date IS NULL OR home_date>?)")
-        dates = [today] if opt.release_window == "home" else [today, today]
+        window = RELEASE_WINDOWS[opt.release_window]
+        dates = [today] * window.count("?")
         for pool, content_id, terms, args in clauses:
             if pool == "title":
                 # The full IMDb index has a numeric primary key and a generated IMDb string.
@@ -421,7 +429,8 @@ def release_candidates(db, opt, pools, today):
     # just to warm facts. The actual result query has no such time limit.
     # Indexed title/actor matches take priority on a keyword search. Share the
     # time budget so an expensive native feed scan can't starve the IMDb pool.
-    for pool, uid in (pools if opt.keyword else reversed(pools)):
+    broad = not (opt.keyword or opt.first_year or opt.last_year)
+    for pool, uid in (pools if opt.keyword or opt.release_window == "upcoming" else reversed(pools)):
         deadline = time.monotonic() + 0.04 / len(pools)
         db.set_progress_handler(lambda: time.monotonic() >= deadline, 1000)
         try:
@@ -429,14 +438,21 @@ def release_candidates(db, opt, pools, today):
             terms.extend(["t.type='movie'", "NOT EXISTS (SELECT 1 FROM releases.movie_release_check c "
                           "WHERE c.content_id=" + uid + " AND c.next_check>?)"])
             args.append(int(time.time()))
+            order = "t.votes DESC,t.id" if pool == "title" else "t.pos,t.id"
             if pool != "title":
                 terms.append("(" + uid + " GLOB 'tt[0-9]*' OR " + uid + " GLOB 'tmdb:[0-9]*')")
-            elif opt.release_window == "cinema" and not (opt.keyword or opt.first_year or opt.last_year):
+            if broad and opt.release_window == "upcoming":
+                # For IMDb, walk the year index from the nearest future year.
+                # Public feeds also carry announced films later in this year.
+                terms.append("t.year>=?")
+                args.append(today.year + 1 if pool == "title" else today.year)
+                if pool == "title":
+                    order = "t.year,t.id DESC"
+            elif broad and pool == "title" and opt.release_window == "cinema":
                 # Let SQLite stop after the first recent titles in vote order.
                 # A year-index range scan would sort every film in those years.
                 terms.append("+t.year BETWEEN ? AND ?")
                 args.extend([today.year - 2, today.year + 1])
-            order = "t.votes DESC,t.id" if pool == "title" else "t.pos,t.id"
             cursor = db.execute("SELECT " + uid + " FROM " + pool + " t" + filtered(terms)
                                 + " ORDER BY " + order + " LIMIT ?", [*args, RELEASE_CANDIDATES - len(ids)])
             ids.extend(row[0] for row in cursor)

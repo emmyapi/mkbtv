@@ -18,6 +18,9 @@ import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.repository.DiscoverSearchApi
+import com.nuvio.tv.data.repository.movieReleaseId
+import com.nuvio.tv.ui.screens.search.MovieReleaseLoader
 import com.nuvio.tv.data.repository.CinemetaRelatedService
 import com.nuvio.tv.data.repository.ImdbEpisodeRatingsRepository
 import com.nuvio.tv.data.repository.MDBListRepository
@@ -98,6 +101,7 @@ internal fun shouldContinueTrailerInBackgroundOnBack(
 class MetaDetailsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val metaRepository: MetaRepository,
+    private val discoverSearch: DiscoverSearchApi,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
@@ -193,6 +197,7 @@ class MetaDetailsViewModel @Inject constructor(
         observeMovieResumeProgress()
         observeWatchedEpisodes()
         observeMovieWatched()
+        observeMovieRelease()
         observeRelatedWatchedStatus()
         observeBlurUnwatchedEpisodes()
         observeEpisodeOptionsOverlayStyle()
@@ -205,6 +210,24 @@ class MetaDetailsViewModel @Inject constructor(
         observeShowFullReleaseDate()
         observeHideUnreleasedContent()
         loadMeta()
+    }
+
+    private fun observeMovieRelease() {
+        if (ContentType.fromString(itemType) != ContentType.MOVIE) return
+        viewModelScope.launch {
+            val loader = MovieReleaseLoader(this, discoverSearch::movieReleases, { profile, releases ->
+                if (profile == profileManager.activeProfileId.value) {
+                    _uiState.update { state -> state.copy(movieRelease = releases[state.meta?.movieReleaseId]) }
+                }
+            })
+            combine(discoverSearch.movieReleaseProfile, _uiState.map { it.meta?.movieReleaseId }.distinctUntilChanged()) {
+                profile, id -> profile to id
+            }.distinctUntilChanged().collect { (profile, id) ->
+                loader.reset()
+                _uiState.update { it.copy(movieRelease = null) }
+                if (profile != null && id != null) loader.request(profile, sequenceOf(id))
+            }
+        }
     }
 
     private fun observeHideUnreleasedContent() {
@@ -901,6 +924,7 @@ class MetaDetailsViewModel @Inject constructor(
             productionCompanies = enrichment.productionCompanies,
             networks = enrichment.networks,
             ageRating = enrichment.ageRating,
+            movieDistributionDates = enrichment.movieDistributionDates,
             country = enrichment.countries?.joinToString(", "),
             awards = null,
             language = enrichment.language,
@@ -1616,6 +1640,8 @@ class MetaDetailsViewModel @Inject constructor(
                 runtime = enrichment.runtimeMinutes?.toString() ?: updated.runtime,
                 status = enrichment.status ?: updated.status,
                 ageRating = enrichment.ageRating ?: updated.ageRating,
+                movieDistributionDates = enrichment.movieDistributionDates?.merge(updated.movieDistributionDates)
+                    ?: updated.movieDistributionDates,
                 country = enrichment.countries?.joinToString(", ") ?: updated.country,
                 language = enrichment.language ?: updated.language
             )

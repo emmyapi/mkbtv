@@ -32,6 +32,19 @@ class MetaMapperTest {
     }
 
     @Test
+    fun `search rows and full details prefer the same age certification`() {
+        val preview = Moshi.Builder().build().adapter(MetaPreviewDto::class.java)
+        for ((extra, rating) in listOf(
+            "" to "PG-13",
+            ""","app_extras":{"certificationLocal":" 12 ","certification":"R"}""" to "12"
+        )) {
+            val item = """{"id":"tt1234567","type":"movie","name":"Movie","ageRating":"PG-13"$extra}"""
+            assertEquals(rating, preview.fromJson(item)?.toDomainOrNull("movie")?.ageRating)
+            assertEquals(rating, parse("""{"meta":$item}""").ageRating)
+        }
+    }
+
+    @Test
     fun `default addon certification is used when localized value is blank`() {
         val result = parse(
             """

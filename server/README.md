@@ -60,9 +60,14 @@ Recommendation lookups send individual title IDs to metadata providers. Search m
 
 ## Movie releases in search
 
-With the Discovery addon connected, **Movie release** appears in Search and Discover. **Any** includes movies with unknown dates and keeps series in the results. **Cinema Release** includes films with a recorded theatrical opening and no recorded home release to date. **Available at Home** includes films with a digital or physical release in any country, including films that went straight to streaming. A poster can also show **Upcoming** or an announced home date. TMDB release records describe the movie's distribution. Actual file availability and quality can vary. [TMDB release types](https://developer.themoviedb.org/reference/movie-release-dates)
+With the Discovery addon connected, **Movie release** appears in Search and Discover. Its filters use the earliest recorded theatrical and home releases worldwide. [TMDB release types](https://developer.themoviedb.org/reference/movie-release-dates)
 
-The TV displays regular search results immediately and requests release information separately, in batches. Discovery keeps the worldwide dates in `movie-releases.sqlite3` in its state directory. A background worker looks up movies by ID, checking the exact title against TMDB's country release tables. It also prepares popular films in advance. The release filters include only confirmed matches, so a new search can gain results as the cache fills. In Discover, the match count and every results page use the same filter. With a watch-history filter active, posters use release dates already in the shared cache.
+- **Any** includes series and movies with unknown release dates.
+- **Announced** shows films whose known theatrical and home releases are all in the future. A single confirmed date qualifies, including for a film going straight to streaming. Choosing this filter also shows upcoming films when **Hide Unreleased Content** is enabled.
+- **In Cinemas** shows films with a recorded theatrical opening on or before today and no recorded home release on or before today.
+- **Released** shows films whose first digital or physical release has arrived, including direct-to-streaming films.
+
+The TV displays regular search results immediately and requests release information separately, in batches. Discovery keeps the worldwide dates and available US age certificates in `movie-releases.sqlite3` in its state directory. A background worker looks up movies by ID, checking the exact title against TMDB's country release tables. It also prepares popular films in advance. The release filters include only confirmed matches, so a new search can gain results as the cache fills. In Discover, the match count and every results page use the same filter. With a watch-history filter active, posters use release information already in the shared cache.
 
 ## Long-term For You
 

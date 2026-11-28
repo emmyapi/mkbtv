@@ -916,6 +916,8 @@ private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: 
             merged = merged.copy(
                 runtime = enrichment.runtimeMinutes?.toString() ?: merged.runtime,
                 ageRating = enrichment.ageRating ?: merged.ageRating,
+                movieDistributionDates = enrichment.movieDistributionDates?.merge(merged.movieDistributionDates)
+                    ?: merged.movieDistributionDates,
                 status = enrichment.status ?: merged.status
             )
         }
@@ -1020,6 +1022,8 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
         runtime = meta.runtime ?: currentItem.runtime,
         status = meta.status ?: currentItem.status,
         ageRating = meta.ageRating ?: currentItem.ageRating,
+        movieDistributionDates = meta.movieDistributionDates?.merge(currentItem.movieDistributionDates)
+            ?: currentItem.movieDistributionDates,
         language = meta.language ?: currentItem.language,
         country = meta.country ?: currentItem.country,
         seasonCount = seasonCount ?: currentItem.seasonCount,

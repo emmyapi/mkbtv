@@ -16,6 +16,7 @@ import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.ui.util.localizedContentType
 import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.ui.util.formatHeroRuntime
+import com.nuvio.tv.domain.model.MovieDistributionDates
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.formatContinueWatchingProgressLabel
@@ -66,7 +67,8 @@ data class HeroPreview(
      *  even after navigation away and back. */
     val frozenBackdropUrl: String? = null,
     /** Same idea for the logo URL. */
-    val frozenLogoUrl: String? = null
+    val frozenLogoUrl: String? = null,
+    val movieDistributionDates: MovieDistributionDates? = null
 )
 
 @Immutable
@@ -495,7 +497,8 @@ internal fun buildCatalogItem(
         imdbText = item.imdbRating
             ?.let { String.format("%.1f", it) },
         ageRatingText = item.ageRating,
-        statusText = item.status,
+        statusText = item.status.takeUnless { item.type == ContentType.MOVIE },
+        movieDistributionDates = item.movieDistributionDates,
         countryText = item.country,
         languageText = item.language?.uppercase(),
         genres = item.genres.take(3).asStable(),

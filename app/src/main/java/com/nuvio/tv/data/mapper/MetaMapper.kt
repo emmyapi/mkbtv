@@ -46,12 +46,7 @@ fun MetaDto.toDomain(episodeLabel: String = "Episode"): Meta {
         videos = videos?.map { it.toDomain(episodeLabel) } ?: emptyList(),
         productionCompanies = emptyList(),
         networks = emptyList(),
-        ageRating = listOf(
-            appExtras?.certificationLocal,
-            appExtras?.certification
-        ).firstNotNullOfOrNull { value ->
-            value?.trim()?.takeIf(String::isNotBlank)
-        },
+        ageRating = preferredAgeRating(appExtras?.certificationLocal, appExtras?.certification, ageRating),
         country = country,
         awards = awards,
         language = language,

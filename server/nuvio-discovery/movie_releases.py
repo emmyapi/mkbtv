@@ -23,7 +23,7 @@ MAX_BATCH = 200
 MAX_PENDING = 256
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS movie_release (
-    tmdb_id TEXT PRIMARY KEY, imdb_id TEXT UNIQUE, theatrical_date TEXT, home_date TEXT
+    tmdb_id TEXT PRIMARY KEY, imdb_id TEXT UNIQUE, theatrical_date TEXT, home_date TEXT, age_rating TEXT
 );
 CREATE INDEX IF NOT EXISTS release_theatrical ON movie_release(theatrical_date, home_date);
 CREATE INDEX IF NOT EXISTS release_home ON movie_release(home_date);
@@ -55,7 +55,12 @@ def typed_dates(body, number):
     theatrical = min((row['date'] for row in rows if row['type'] in ('Theatrical', 'Theatrical (limited)')),
                      default=None)
     home = min((row['date'] for row in rows if row['type'] in ('Digital', 'Physical')), default=None)
-    return [theatrical, home]
+    # Prefer the original US theatrical cut when home editions have a different certificate.
+    certificates = [row for row in rows if row['country'] == 'US' and row['certification'] and
+                    len(row['certification']) <= 16 and row['type'] in ('Theatrical', 'Theatrical (limited)', 'Digital', 'Physical')]
+    preferred = min(certificates, key=lambda row: (not row['type'].startswith('Theatrical'), row['date']),
+                    default=None)
+    return [theatrical, home, preferred['certification'] if preferred else None]
 
 
 def native_imdb_id(provider, uid):
@@ -109,13 +114,15 @@ def fetch_dates(provider, uid):
         if not re.fullmatch('[1-9][0-9]{0,11}', number):
             raise ProviderError('invalid TMDB movie identity')
     url = f'{d.TMDB}/movie/{number}/releases?language=en-US'
-    theatrical, home = provider.request(url, lambda body: typed_dates(body, number), DAY // 4,
-                                        cache_version='typed-worldwide-v1')
-    return number, imdb, theatrical, home
+    theatrical, home, age_rating = provider.request(url, lambda body: typed_dates(body, number), DAY // 4,
+                                        cache_version='typed-worldwide-v2')
+    return number, imdb, theatrical, home, age_rating
 
 
-def release_card(theatrical, home, today):
+def release_card(theatrical, home, today, age_rating=None):
     result = {}
+    if age_rating:
+        result['ageRating'] = age_rating
     if theatrical:
         result['cinemaDate'] = theatrical
     if home:
@@ -146,6 +153,11 @@ class MovieReleases:
         with closing(sqlite3.connect(self.path)) as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript(SCHEMA)
+            with db:
+                db.execute('BEGIN IMMEDIATE')
+                if 'age_rating' not in {row[1] for row in db.execute('PRAGMA table_info(movie_release)')}:
+                    db.execute('ALTER TABLE movie_release ADD COLUMN age_rating TEXT')
+                    db.execute('UPDATE movie_release_check SET next_check=0')
 
     def start(self):
         with self.condition:
@@ -172,7 +184,7 @@ class MovieReleases:
         today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
         with closing(sqlite3.connect(self.path, timeout=0.15)) as db:
             rows = db.execute("""
-                SELECT w.value, r.theatrical_date, r.home_date, c.next_check
+                SELECT w.value, r.theatrical_date, r.home_date, r.age_rating, c.next_check
                 FROM json_each(?) w
                 LEFT JOIN movie_release r ON r.imdb_id=w.value OR
                     (substr(w.value,1,5)='tmdb:' AND r.tmdb_id=substr(w.value,6))
@@ -180,8 +192,8 @@ class MovieReleases:
             """, (json.dumps(wanted),)).fetchall()
         releases = {}
         due = []
-        for uid, theatrical, home, next_check in rows:
-            releases[uid] = release_card(theatrical, home, today)
+        for uid, theatrical, home, age_rating, next_check in rows:
+            releases[uid] = release_card(theatrical, home, today, age_rating)
             if not next_check or next_check <= now:
                 due.append(uid)
         if not enqueue:
@@ -205,21 +217,22 @@ class MovieReleases:
             if check and check[0] > now:
                 return
             try:
-                number, imdb, theatrical, home = fetch_dates(self.provider, uid)
+                number, imdb, theatrical, home, age_rating = fetch_dates(self.provider, uid)
                 with db:
                     db.execute('BEGIN IMMEDIATE')
                     # Dates are replaceable on verified corrections. A conflicting alias
                     # must never transfer another movie's facts to this IMDb identity.
-                    old = db.execute('SELECT imdb_id,theatrical_date,home_date FROM movie_release WHERE tmdb_id=?',
+                    old = db.execute('SELECT imdb_id,theatrical_date,home_date,age_rating FROM movie_release WHERE tmdb_id=?',
                                      (number,)).fetchone()
                     if imdb and old and old[0] and old[0] != imdb:
                         raise ProviderError('conflicting IMDb identity')
                     imdb = imdb or (old[0] if old else None)
-                    if old != (imdb, theatrical, home):
-                        db.execute("""INSERT INTO movie_release(tmdb_id,imdb_id,theatrical_date,home_date)
-                                      VALUES (?,?,?,?) ON CONFLICT(tmdb_id) DO UPDATE SET
+                    if old != (imdb, theatrical, home, age_rating):
+                        db.execute("""INSERT INTO movie_release(tmdb_id,imdb_id,theatrical_date,home_date,age_rating)
+                                      VALUES (?,?,?,?,?) ON CONFLICT(tmdb_id) DO UPDATE SET
                                       imdb_id=excluded.imdb_id, theatrical_date=excluded.theatrical_date,
-                                      home_date=excluded.home_date""", (number, imdb, theatrical, home))
+                                      home_date=excluded.home_date, age_rating=excluded.age_rating""",
+                                   (number, imdb, theatrical, home, age_rating))
                     today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
                     ttl = 30 * DAY if home and home <= today else DAY // 4
                     aliases = ['tmdb:' + number] + ([imdb] if imdb else [])

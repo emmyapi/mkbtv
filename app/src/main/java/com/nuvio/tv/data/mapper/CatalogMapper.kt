@@ -5,6 +5,9 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 
+internal fun preferredAgeRating(local: String?, standard: String?, fallback: String?): String? =
+    listOf(local, standard, fallback).firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+
 fun MetaPreviewDto.toDomainOrNull(catalogType: String, sourceAddonBaseUrl: String? = null): MetaPreview? {
     val resolvedId = id?.takeIf { it.isNotBlank() } ?: return null
     val resolvedName = name?.takeIf { it.isNotBlank() } ?: return null
@@ -25,6 +28,7 @@ fun MetaPreviewDto.toDomainOrNull(catalogType: String, sourceAddonBaseUrl: Strin
         genres = genres ?: emptyList(),
         runtime = runtime,
         status = status?.trim()?.takeIf { it.isNotBlank() },
+        ageRating = preferredAgeRating(appExtras?.certificationLocal, appExtras?.certification, ageRating),
         released = released,
         country = country,
         imdbId = imdbId,

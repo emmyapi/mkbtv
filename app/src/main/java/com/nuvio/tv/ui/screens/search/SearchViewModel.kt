@@ -976,7 +976,8 @@ class SearchViewModel @Inject constructor(
         val state = _uiState.value
         val placeholders = state.catalogRows.filter { it.items.firstOrNull()?.id?.startsWith("__placeholder_") == true }
             .associateBy { it.stableKey() }
-        val today = if (hideUnreleasedContent) LocalDate.now() else null
+        val window = state.searchReleaseWindow
+        val today = if (hideUnreleasedContent && window != ReleaseWindow.UPCOMING) LocalDate.now() else null
         val rows = catalogOrder.mapNotNull { key ->
             val row = catalogsMap[key] ?: return@mapNotNull placeholders[key]
             when {
@@ -985,7 +986,6 @@ class SearchViewModel @Inject constructor(
                 else -> row
             }
         }
-        val window = state.searchReleaseWindow
         val profile = movieReleaseProfile
         if (profile != null && profile == profileManager.activeProfileId.value && state.query.trim() == activeSearchQuery) {
             // All loaded candidates need classification for a filter. For ordinary browsing, seed

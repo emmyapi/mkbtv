@@ -42,5 +42,10 @@ data class MetaPreviewDto(
     @Json(name = "popularity") val popularity: Any? = null,
     val seasonalRewatch: Boolean = false,
     val seasonalRewatchAt: Long? = null,
-    @Json(name = "moviedb_id") val movieDbId: Any? = null
+    @Json(name = "moviedb_id") val movieDbId: Any? = null,
+    @Json(name = "app_extras") val appExtras: CatalogCertificationDto? = null,
+    val ageRating: String? = null
 )
+
+@JsonClass(generateAdapter = true)
+data class CatalogCertificationDto(val certificationLocal: String? = null, val certification: String? = null)

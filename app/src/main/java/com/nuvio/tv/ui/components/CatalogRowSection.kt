@@ -448,6 +448,7 @@ fun CatalogRowSection(
                     trailerPreviewAudioUrl = trailerPreviewAudioUrls[item.id],
                     onRequestTrailerPreview = latestOnRequestTrailerPreview,
                     movieRelease = movieRelease?.invoke(item),
+                    showMovieRelease = movieRelease != null,
                     isWatched = latestIsItemWatched(item),
                     onFocus = onFocusStable,
                     onBackdropExpandedChanged = null,

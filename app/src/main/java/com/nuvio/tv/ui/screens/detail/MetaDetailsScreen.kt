@@ -78,6 +78,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import com.nuvio.tv.R
+import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -788,6 +789,7 @@ fun MetaDetailsScreen(
                     mdbListRatingOrder = uiState.mdbListRatingOrder,
                     isMdbListRatingsActive = uiState.isMdbListRatingsActive,
                     tmdbRating = uiState.tmdbRating,
+                    movieRelease = uiState.movieRelease,
                     comments = uiState.comments,
                     commentsCurrentPage = uiState.commentsCurrentPage,
                     commentsPageCount = uiState.commentsPageCount,
@@ -1032,6 +1034,7 @@ private fun MetaDetailsContent(
     mdbListRatingOrder: List<String> = com.nuvio.tv.domain.model.MDBListSettings.DEFAULT_RATING_ORDER,
     isMdbListRatingsActive: Boolean,
     tmdbRating: Float?,
+    movieRelease: MovieRelease?,
     comments: List<TraktCommentReview>,
     commentsCurrentPage: Int,
     commentsPageCount: Int,
@@ -2146,6 +2149,7 @@ private fun MetaDetailsContent(
                         mdbListRatings = visibleMdbListRatings,
                         mdbListRatingOrder = mdbListRatingOrder,
                         hideMetaInfoImdb = !showStandardOverallRatings,
+                        movieRelease = movieRelease,
                         tmdbRating = tmdbRating.takeIf { showStandardOverallRatings },
                         showFullReleaseDate = showFullReleaseDate,
                         trailerAvailable = trailerButtonAvailable,

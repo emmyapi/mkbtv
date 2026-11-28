@@ -46,7 +46,11 @@ data class Meta(
     val hasLogo: Boolean? = null,
     val hasLinks: Boolean? = null,
     val hasVideos: Boolean? = null,
-    val popularity: Double? = null
+    val popularity: Double? = null,
+    val movieDistributionDates: MovieDistributionDates? = if (type == ContentType.MOVIE) {
+        MovieDistributionDates.fromTypedDates(releaseDates.asSequence().flatMap { it.releaseDates.asSequence() }
+            .map { it.type to it.releaseDate })
+    } else null
 ) {
     val apiType: String
         get() = type.toApiString(rawType)

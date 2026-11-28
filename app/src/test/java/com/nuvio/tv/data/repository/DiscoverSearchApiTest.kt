@@ -2,12 +2,14 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
+import com.nuvio.tv.domain.model.MovieDistributionDates
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.squareup.moshi.Moshi
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.IOException
+import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -56,6 +58,22 @@ class DiscoverSearchApiTest {
         for (bad in listOf("bad", "url/other:2", "s:0", "s:-1", "s:1:2", "s:2147483648")) {
             assertTrue(runCatching { request.copy(cursor = bad).wire(2026) }.exceptionOrNull() is IOException)
         }
+    }
+
+    @Test fun usesOnlyDatedDistributionAndCombinesHouseholdAndMetadataEvidence() {
+        val today = LocalDate.parse("2026-11-28")
+        fun dates(vararg rows: Pair<Int?, String?>) = MovieDistributionDates.fromTypedDates(rows.asSequence())
+        assertNull(movieReleaseFromDates(dates(1 to "2026-05-04", 6 to "2025-02-10",
+            4 to "2026-02-30", null to "2001-01-01"), today = today))
+
+        val announced = dates(3 to "2026-12-10", 2 to "2026-12-01T00:00:00.000Z", 5 to "2027-01-05")
+        assertEquals(MovieRelease("upcoming", "2027-01-05", "2026-12-01"), movieReleaseFromDates(announced, today = today))
+        val cinema = MovieRelease("cinema", cinemaDate = "2026-11-28", ageRating = "PG-13")
+        assertEquals(cinema.copy(homeDate = "2027-01-05"), movieReleaseFromDates(announced, cinema, today))
+        val digital = dates(4 to "2026-11-28")
+        assertEquals(cinema.copy(status = "home", homeDate = "2026-11-28"), movieReleaseFromDates(digital, cinema, today))
+        assertEquals("home", movieReleaseFromDates(announced, MovieRelease("home", homeDate = "2026-11-01"), today)?.status)
+        assertEquals("home", movieReleaseFromDates(dates(5 to "2025-12-01"), today = today)?.status)
     }
 
     @Test fun keepsOrderedNullableArtworkAndTypedIdsAcrossSnapshotPages() {

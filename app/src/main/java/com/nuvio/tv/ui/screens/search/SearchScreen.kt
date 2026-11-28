@@ -723,7 +723,7 @@ fun SearchScreen(
                                 } else {
                                     uiState.query
                                 },
-                                movieRelease = uiState::movieRelease,
+                                movieRelease = if (uiState.movieReleasesEnabled) uiState::movieRelease else null,
                                 isItemWatched = { item ->
                                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
                                     if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds

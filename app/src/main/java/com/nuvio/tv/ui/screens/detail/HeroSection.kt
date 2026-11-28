@@ -10,9 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -65,7 +62,12 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
-import android.util.Log
+import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseFromDates
+import com.nuvio.tv.ui.components.AgeStatusBadge
+import com.nuvio.tv.ui.components.catalogStatusLabel
+import com.nuvio.tv.ui.components.nextDateLabel
+import com.nuvio.tv.ui.components.phaseLabel
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
@@ -122,6 +124,7 @@ fun HeroContentSection(
     mdbListRatingOrder: List<String> = com.nuvio.tv.domain.model.MDBListSettings.DEFAULT_RATING_ORDER,
     hideMetaInfoImdb: Boolean = false,
     tmdbRating: Float? = null,
+    movieRelease: MovieRelease? = null,
     showFullReleaseDate: Boolean = true,
     isTrailerPlaying: Boolean = false,
     playButtonFocusRequester: FocusRequester? = null,
@@ -370,6 +373,7 @@ fun HeroContentSection(
                         meta = meta,
                         hideImdbRating = hideMetaInfoImdb,
                         showFullReleaseDate = showFullReleaseDate,
+                        movieRelease = movieRelease,
                         tmdbRating = tmdbRating
                     )
                 }
@@ -657,7 +661,8 @@ private fun MetaInfoRow(
     meta: Meta,
     hideImdbRating: Boolean,
     showFullReleaseDate: Boolean = true,
-    tmdbRating: Float? = null
+    tmdbRating: Float? = null,
+    movieRelease: MovieRelease? = null
 ) {
     val context = LocalContext.current
     val genresText = remember(meta.genres) {
@@ -685,36 +690,15 @@ private fun MetaInfoRow(
             .data(com.nuvio.tv.R.raw.mdblist_tmdb)
             .build()
     }
-    val ageRatingBadge = remember(meta.ageRating) {
-        meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
+    val release = if (meta.type == ContentType.MOVIE) movieReleaseFromDates(meta.movieDistributionDates, movieRelease) else null
+    val ageRatingBadge = meta.ageRating?.trim()?.takeIf { it.isNotEmpty() } ?: release?.ageRating
+    val statusBadge = if (meta.type == ContentType.MOVIE) release.phaseLabel() else {
+        catalogStatusLabel(meta.status, meta.type == ContentType.SERIES || meta.type == ContentType.TV)
     }
-    val isSeries = meta.type == ContentType.SERIES || meta.type == ContentType.TV
-    val strStatusEnded = stringResource(if (isSeries) R.string.series_status_ended else R.string.movie_status_ended)
-    val strStatusContinuing = stringResource(if (isSeries) R.string.series_status_continuing else R.string.movie_status_continuing)
-    val strStatusCurrent = stringResource(if (isSeries) R.string.series_status_current else R.string.movie_status_current)
-    val strStatusCancelled = stringResource(if (isSeries) R.string.series_status_cancelled else R.string.movie_status_cancelled)
-    val strStatusReleased = stringResource(if (isSeries) R.string.series_status_released else R.string.movie_status_released)
-    val strStatusPlanned = stringResource(if (isSeries) R.string.series_status_planned else R.string.movie_status_planned)
-    val strStatusRumored = stringResource(if (isSeries) R.string.series_status_rumored else R.string.movie_status_rumored)
-    val strStatusInProduction = stringResource(if (isSeries) R.string.series_status_in_production else R.string.movie_status_in_production)
-    val strStatusPostProduction = stringResource(if (isSeries) R.string.series_status_post_production else R.string.movie_status_post_production)
-    val statusBadge = remember(meta.status, isSeries) {
-        when (meta.status?.trim()?.lowercase()) {
-            "ended" -> strStatusEnded.uppercase()
-            "continuing", "returning series" -> strStatusContinuing.uppercase()
-            "current" -> strStatusCurrent.uppercase()
-            "cancelled", "canceled" -> strStatusCancelled.uppercase()
-            "released" -> strStatusReleased.uppercase()
-            "planned" -> strStatusPlanned.uppercase()
-            "rumored" -> strStatusRumored.uppercase()
-            "in production" -> strStatusInProduction.uppercase()
-            "post production" -> strStatusPostProduction.uppercase()
-            else -> meta.status?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
-        }
-    }
-    Log.d("HeroBadge", "name=${meta.name} ageRating=${meta.ageRating} status=${meta.status} ageRatingBadge=$ageRatingBadge statusBadge=$statusBadge")
-    val secondaryItems = remember(runtimeText, meta.country, meta.language) {
+    val nextReleaseDate = release.nextDateLabel()
+    val secondaryItems = remember(runtimeText, meta.country, meta.language, nextReleaseDate) {
         buildList<String> {
+            nextReleaseDate?.let { add(it) }
             runtimeText?.takeIf { it.isNotBlank() }?.let { add(it) }
             meta.country?.trim()?.takeIf { it.isNotBlank() }?.let { add(normalizeCountryLabel(it)) }
             meta.language?.trim()?.takeIf { it.isNotBlank() }?.let { add(it.uppercase()) }
@@ -799,24 +783,7 @@ private fun MetaInfoRow(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (ageRatingBadge != null && statusBadge != null) {
-                    CombinedMetaBadge(
-                        leftText = ageRatingBadge,
-                        leftColor = NuvioTheme.colors.TextSecondary,
-                        rightText = statusBadge,
-                        rightColor = NuvioTheme.colors.TextPrimary
-                    )
-                } else {
-                    ageRatingBadge?.let { badge ->
-                        HeroMetaBadge(text = badge)
-                    }
-                    statusBadge?.let { badge ->
-                        HeroMetaBadge(
-                            text = badge,
-                            contentColor = NuvioTheme.colors.TextPrimary
-                        )
-                    }
-                }
+                AgeStatusBadge(ageRating = ageRatingBadge, status = statusBadge)
                 if ((ageRatingBadge != null || statusBadge != null) && secondaryItems.isNotEmpty()) {
                     MetaInfoDivider()
                 }
@@ -832,68 +799,6 @@ private fun MetaInfoRow(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun HeroMetaBadge(
-    text: String,
-    contentColor: Color = NuvioTheme.colors.TextSecondary
-) {
-    Box(
-        modifier = Modifier
-            .border(
-                border = BorderStroke(NuvioTheme.spacing.hairline, contentColor.copy(alpha = 0.55f)),
-                shape = RoundedCornerShape(6.dp)
-            )
-            .padding(horizontal = NuvioTheme.spacing.sm, vertical = NuvioTheme.spacing.xs),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = contentColor,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun CombinedMetaBadge(
-    leftText: String,
-    leftColor: Color = NuvioTheme.colors.TextSecondary,
-    rightText: String,
-    rightColor: Color = NuvioTheme.colors.TextPrimary
-) {
-    val dividerColor = leftColor.copy(alpha = 0.55f)
-    Row(
-        modifier = Modifier
-            .border(
-                border = BorderStroke(NuvioTheme.spacing.hairline, dividerColor),
-                shape = RoundedCornerShape(6.dp)
-            )
-            .padding(horizontal = NuvioTheme.spacing.sm, vertical = NuvioTheme.spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
-    ) {
-        Text(
-            text = leftText,
-            style = MaterialTheme.typography.labelMedium,
-            color = leftColor,
-            maxLines = 1
-        )
-        Box(
-            modifier = Modifier
-                .width(NuvioTheme.spacing.hairline)
-                .height(NuvioTheme.spacing.md)
-                .background(dividerColor)
-        )
-        Text(
-            text = rightText,
-            style = MaterialTheme.typography.labelMedium,
-            color = rightColor,
-            maxLines = 1
-        )
     }
 }
 

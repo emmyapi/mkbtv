@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
@@ -745,7 +746,8 @@ fun ModernHomeContent(
                             imdbText = enrichedItem.imdbRating
                                 ?.let { String.format(java.util.Locale.US, "%.1f", it) },
                             ageRatingText = enrichedItem.ageRating,
-                            statusText = enrichedItem.status,
+                            statusText = enrichedItem.status.takeUnless { enrichedItem.type == ContentType.MOVIE },
+                            movieDistributionDates = enrichedItem.movieDistributionDates,
                             countryText = enrichedItem.country,
                             languageText = enrichedItem.language?.uppercase(),
                             genres = enrichedItem.genres.take(3).asStable(),

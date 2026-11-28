@@ -69,7 +69,7 @@ class DiscoverQueries(unittest.TestCase):
         releases = MovieReleases(self.data)
         today = datetime.now(timezone.utc).date().isoformat()
         with sqlite3.connect(releases.path) as db:
-            db.executemany("INSERT INTO movie_release VALUES(?,?,?,?)", [
+            db.executemany("INSERT INTO movie_release(tmdb_id,imdb_id,theatrical_date,home_date) VALUES(?,?,?,?)", [
                 ("1", "tt0000001", "1999-01-01", today),
                 ("2", "tt0000002", today, "2999-01-01"),
                 ("880", "tt0000003", None, "2020-01-01"),
@@ -83,7 +83,7 @@ class DiscoverQueries(unittest.TestCase):
         first = self.call(**params)
         self.assertEqual((2, 1, ["tt0000003"]), (first["total"], first["next_offset"], [m["id"] for m in first["metas"]]))
         with sqlite3.connect(releases.path) as db:
-            db.execute("INSERT INTO movie_release VALUES ('888', 'tt0000888', NULL, '2020-01-01')")
+            db.execute("INSERT INTO movie_release(tmdb_id,imdb_id,home_date) VALUES ('888','tt0000888','2020-01-01')")
         last = self.call(**params, offset=1, snapshot=first["snapshot"])
         self.assertEqual((None, ["tt0000001"]), (last["next_offset"], [m["id"] for m in last["metas"]]))
         self.assertEqual(["tmdb:99", "tt0000002"], [m["id"] for m in self.call(
@@ -99,6 +99,43 @@ class DiscoverQueries(unittest.TestCase):
         with self.assertRaises(dq.QueryError) as changed:
             self.call(**params, offset=1, snapshot=first["snapshot"])
         self.assertEqual(409, changed.exception.status)
+
+    def test_announced_matches_only_known_future_windows_before_paging(self):
+        releases = MovieReleases(self.data)
+        today = datetime.now(timezone.utc).date().isoformat()
+        with sqlite3.connect(releases.path) as db:
+            db.executemany("INSERT INTO movie_release(tmdb_id,imdb_id,theatrical_date,home_date) VALUES(?,?,?,?)", [
+                ("1", "tt0000001", None, None),               # No evidence
+                ("2", "tt0000002", today, "2999-01-01"),      # In cinemas
+                ("880", "tt0000003", "2999-01-01", today),    # Already at home
+                ("5", "tt0000005", "2999-01-02", "2999-02-01"),
+                ("98", None, "2999-01-03", None),             # Only a cinema opening
+                ("99", None, None, "2999-01-01"),             # Straight to streaming
+                ("77", None, "2999-01-01", None),             # The feed's series shares this TMDB number
+            ])
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.executemany("INSERT INTO member VALUES ('hulu','movie',NULL,3,?,?,2080,?,'movie')", [
+                ('watchmode:98', 'Cinema', 98), ('watchmode:99', 'Digital', 99)
+            ])
+        request = dict(releases=releases, releaseWindow="upcoming", sort="title", hide_unreleased=True, limit=2)
+        first = self.call(**request)
+        self.assertEqual((3, 2, ["tmdb:98", "tmdb:99"]),
+                         (first["total"], first["next_offset"], [m["id"] for m in first["metas"]]))
+        second = self.call(**request, offset=2, snapshot=first["snapshot"])
+        self.assertEqual((None, ["tt0000005"]), (second["next_offset"], [m["id"] for m in second["metas"]]))
+        with sqlite3.connect(releases.path) as db:
+            db.execute("UPDATE movie_release SET theatrical_date=? WHERE tmdb_id='5'", (today,))
+        with self.assertRaises(dq.QueryError) as changed:
+            self.call(**request, offset=2, snapshot=first["snapshot"])
+        self.assertEqual(409, changed.exception.status)
+
+    def test_announced_warms_future_catalog_years_without_using_private_watch_membership(self):
+        releases = MovieReleases(self.data)
+        with patch.object(releases, "lookup", return_value={"pending": True}) as lookup:
+            result = self.call(releases=releases, releaseWindow="upcoming", hide_unreleased=True,
+                               watch="watched", watched_movies=["tt0000999"])
+            self.assertEqual((0, True), (result["total"], result["releasePending"]))
+            lookup.assert_called_once_with(["tt0000005"])
 
     def test_filtered_cold_context_queues_only_public_movie_ids(self):
         releases = MovieReleases(self.data)
@@ -127,7 +164,7 @@ class DiscoverQueries(unittest.TestCase):
     def test_watch_filtered_page_labels_read_only_its_visible_movies_from_cache(self):
         releases = MovieReleases(self.data)
         with sqlite3.connect(releases.path) as db:
-            db.execute("INSERT INTO movie_release VALUES ('2','tt0000002',NULL,'2020-01-01')")
+            db.execute("INSERT INTO movie_release(tmdb_id,imdb_id,home_date) VALUES ('2','tt0000002','2020-01-01')")
         request = dict(watch="watched", watched_movies=["tt0000002", "tt0000003"],
                        watched_series=["tt0000004"], sort="title", limit=1)
         with patch.object(releases, "lookup", wraps=releases.lookup) as lookup:
@@ -301,7 +338,8 @@ class DiscoverQueries(unittest.TestCase):
         (self.data / "config.json").write_text(json.dumps({"tokens": {"1": "unitA", "2": "unitB"}}))
         releases = MovieReleases(self.data)
         with sqlite3.connect(releases.path) as db:
-            db.execute("INSERT INTO movie_release VALUES ('42', 'tt0000042','1998-01-01','1998-08-01')")
+            db.execute("INSERT INTO movie_release(tmdb_id,imdb_id,theatrical_date,home_date)"
+                       " VALUES ('42','tt0000042','1998-01-01','1998-08-01')")
         server = ThreadingHTTPServer(("127.0.0.1", 0), discovery.handler_for(self.data, self.data, releases=releases))
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -390,7 +428,7 @@ class DiscoverQueries(unittest.TestCase):
             {"limit": None},
             {"type": "any", "year_min": 2020, "year_max": 2000},
             {"sort": "x"},
-            {"releaseWindow": "upcoming"},
+            {"releaseWindow": "unknown"},
             {"watch": "watched", "watched_movies": [{}]},
             {"offset": 1},
             {"min_rating": True},

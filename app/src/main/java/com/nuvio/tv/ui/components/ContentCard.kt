@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
 import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseFromDates
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -108,6 +109,7 @@ fun ContentCard(
     trailerPreviewAudioUrl: String? = null,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     movieRelease: MovieRelease? = null,
+    showMovieRelease: Boolean = movieRelease != null,
     isWatched: Boolean = false,
     onFocus: (MetaPreview) -> Unit = {},
     onBackdropExpandedChanged: ((Boolean) -> Unit)? = null,
@@ -116,6 +118,9 @@ fun ContentCard(
     onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
+    val hasMovieMetadata = showMovieRelease && item.type == ContentType.MOVIE
+    val release = if (hasMovieMetadata) movieReleaseFromDates(item.movieDistributionDates, movieRelease) else null
+    val nextReleaseDate = release.nextDateLabel()
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val globalLandscape = LocalLandscapePosterMode.current
@@ -616,13 +621,6 @@ fun ContentCard(
                     )
                 }
 
-                if (movieRelease != null) {
-                    MovieReleaseBadge(
-                        release = movieRelease,
-                        modifier = Modifier.align(Alignment.TopStart).zIndex(2f)
-                            .padding(start = 4.dp, top = 4.dp, end = if (isWatched) 30.dp else 4.dp)
-                    )
-                }
                 if (isWatched || item.seasonalRewatchAt != null) {
                     WatchedMarker(
                         rewatch = item.seasonalRewatchAt != null,
@@ -660,7 +658,7 @@ fun ContentCard(
                 ) { expanded ->
                 if (expanded) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                    val ageRating = item.ageRating?.trim()?.takeIf { it.isNotBlank() }
+                    val ageRating = item.ageRating?.trim()?.takeIf { it.isNotBlank() && !hasMovieMetadata }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         
@@ -727,7 +725,7 @@ fun ContentCard(
                         style = MaterialTheme.typography.titleMedium,
                         color = NuvioTheme.colors.TextPrimary,
                     )
-                    item.releaseInfo?.let { info ->
+                    (nextReleaseDate ?: item.releaseInfo)?.let { info ->
                         Spacer(modifier = Modifier.height(2.dp))
                         FocusMarqueeText(
                             text = info,
@@ -745,6 +743,7 @@ fun ContentCard(
             }
             } // Box clipToBounds
         }
+        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, release)
         if (!showLabels && effectiveExpandEnabled) {
             Spacer(modifier = Modifier.height(9.dp))
         }

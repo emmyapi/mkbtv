@@ -429,6 +429,27 @@ class SearchViewModelPaginationTest {
     }
 
     @Test
+    fun `Announced shows confirmed future movies even when unreleased titles are normally hidden`() = runTest {
+        val future = title("tt1").copy(releaseInfo = "2099-01-01")
+        val undated = title("tt2")
+        val repository = RecordingCatalogRepository(itemsForPage = { _, _ -> listOf(future, undated) })
+        val viewModel = newViewModel(repository, hideUnreleased = true, releaseProfile = 1, releases = { _, ids ->
+            MovieReleaseReply(ids.associateWith { id ->
+                if (id == future.id) MovieRelease("upcoming", cinemaDate = "2099-01-01") else MovieRelease("unknown")
+            }, false)
+        })
+        viewModel.onEvent(SearchEvent.QueryChanged("films"))
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        advanceUntilIdle()
+        assertEquals(listOf(undated), viewModel.uiState.value.catalogRows.single().items)
+        viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(ReleaseWindow.UPCOMING))
+        advanceUntilIdle()
+        assertEquals(listOf(future), viewModel.uiState.value.catalogRows.single().items)
+        viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(ReleaseWindow.ANY))
+        assertEquals(listOf(undated), viewModel.uiState.value.catalogRows.single().items)
+    }
+
+    @Test
     fun `stale release responses cannot add badges after changing query or profile`() = runTest {
         val late = mutableListOf<Continuation<MovieReleaseReply>>()
         val profile = MutableStateFlow(1)
@@ -485,6 +506,9 @@ class SearchViewModelPaginationTest {
         advanceUntilIdle()
         assertEquals(listOf(null, null, "v2:2"), calls.map { it.cursor })
         assertEquals(listOf("tt1", "tt2", "tt3"), viewModel.uiState.value.discoverResults.map { it.id })
+        viewModel.onEvent(SearchEvent.SelectDiscoverReleaseWindow(ReleaseWindow.UPCOMING))
+        advanceUntilIdle()
+        assertEquals("upcoming", calls.last().wire(2026).releaseWindow)
         viewModel.onEvent(SearchEvent.SelectDiscoverType("series"))
         advanceUntilIdle()
         assertEquals("any", calls.last().releaseWindow)

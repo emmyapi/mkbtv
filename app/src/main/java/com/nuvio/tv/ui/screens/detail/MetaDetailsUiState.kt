@@ -4,6 +4,7 @@ import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.domain.model.DetailImdbRatingsVisibility
 import com.nuvio.tv.domain.model.EpisodeOptionsOverlayStyle
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.data.trailer.TrailerDisplayCapabilities
 import com.nuvio.tv.data.trailer.TrailerPlaybackSource
@@ -81,6 +82,7 @@ data class MetaDetailsUiState(
     val mdbListRatingOrder: List<String> = com.nuvio.tv.domain.model.MDBListSettings.DEFAULT_RATING_ORDER,
     val isMdbListRatingsActive: Boolean = false,
     val tmdbRating: Float? = null,
+    val movieRelease: MovieRelease? = null,
     val comments: List<TraktCommentReview> = emptyList(),
     val commentsCurrentPage: Int = 0,
     val commentsPageCount: Int = 0,

@@ -446,7 +446,7 @@ internal fun DiscoverSection(
                     DiscoverGrid(
                         items = uiState.discoverResults,
                         resolveArtwork = resolveArtwork,
-                        movieRelease = uiState::movieRelease,
+                        movieRelease = if (uiState.movieReleasesEnabled) uiState::movieRelease else null,
                         requestMovieReleases = requestMovieReleases.takeIf {
                             uiState.movieReleasesEnabled && uiState.discoverWatch == DiscoverWatch.ANY
                         },
@@ -512,6 +512,7 @@ internal fun MovieReleasePicker(
             ReleaseWindow.ANY -> R.string.discover_filter_any
             ReleaseWindow.HOME -> R.string.movie_release_home
             ReleaseWindow.CINEMA -> R.string.movie_release_cinema
+            ReleaseWindow.UPCOMING -> R.string.movie_release_upcoming
         }
         DiscoverOption(stringResource(label), it.name)
     }
@@ -965,6 +966,7 @@ internal fun DiscoverGrid(
             GridContentCard(
                 item = displayItem,
                 movieRelease = movieRelease?.invoke(item),
+                showMovieRelease = movieRelease != null,
                 indexPosterUrl = if (artwork != null) item.poster else null,
                 showLabel = showLabels,
                 onClick = {

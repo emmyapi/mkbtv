@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
 import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseFromDates
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -53,6 +54,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.core.image.CustomPosterFallbackInterceptor
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -74,6 +76,7 @@ fun GridContentCard(
     showLogo: Boolean = false,
     imageCrossfade: Boolean = true,
     movieRelease: MovieRelease? = null,
+    showMovieRelease: Boolean = movieRelease != null,
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
@@ -84,6 +87,9 @@ fun GridContentCard(
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
+    val hasMovieMetadata = showMovieRelease && item.type == ContentType.MOVIE
+    val release = if (hasMovieMetadata) movieReleaseFromDates(item.movieDistributionDates, movieRelease) else null
+    val nextReleaseDate = release.nextDateLabel()
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val density = LocalDensity.current
@@ -353,13 +359,6 @@ fun GridContentCard(
                     )
                 }
 
-                if (movieRelease != null) {
-                    MovieReleaseBadge(
-                        release = movieRelease,
-                        modifier = Modifier.align(Alignment.TopStart).zIndex(2f)
-                            .padding(start = 4.dp, top = 4.dp, end = if (isWatched) 30.dp else 4.dp)
-                    )
-                }
                 if (isWatched || item.seasonalRewatchAt != null) {
                     WatchedMarker(
                         rewatch = item.seasonalRewatchAt != null,
@@ -382,7 +381,7 @@ fun GridContentCard(
                     .then(if (globalLandscape) Modifier.fillMaxWidth() else Modifier.width(posterCardStyle.width))
                     .padding(top = NuvioTheme.spacing.sm, start = NuvioTheme.spacing.xxs, end = NuvioTheme.spacing.xxs)
             )
-            item.releaseInfo?.takeIf { showReleaseInfo }?.let { info ->
+            (nextReleaseDate ?: item.releaseInfo?.takeIf { showReleaseInfo })?.let { info ->
                 FocusMarqueeText(
                     text = info,
                     focused = isFocused,
@@ -394,6 +393,7 @@ fun GridContentCard(
                 )
             }
         }
+        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, release)
     }
 }
 

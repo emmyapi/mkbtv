@@ -2487,9 +2487,10 @@
     <string name="discover_no_search_catalog_hint">Choose another type or clear the keyword to browse.</string>
     <string name="discover_empty_filter_hint">Try another keyword, catalog or filter.</string>
     <string name="movie_release_filter">Movie release</string>
-    <string name="movie_release_home">Available at Home</string>
-    <string name="movie_release_cinema">Cinema Release</string>
-    <string name="movie_release_upcoming">Upcoming</string>
+    <string name="movie_release_home">Released</string>
+    <string name="movie_release_cinema">In Cinemas</string>
+    <string name="movie_release_upcoming">Announced</string>
+    <string name="movie_release_cinema_date">In cinemas · %1$s</string>
     <string name="movie_release_home_date">Home · %1$s</string>
     <string name="movie_release_checking">Checking release dates…</string>
     <string name="movie_release_no_matches">No movies with a confirmed matching release</string>

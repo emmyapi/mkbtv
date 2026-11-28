@@ -287,6 +287,7 @@ fun CatalogSeeAllScreen(
                         val itemFocusKey = catalogItemFocusKey(item)
                         GridContentCard(
                             movieRelease = searchUiState?.value?.movieRelease(item),
+                            showMovieRelease = searchUiState?.value?.movieReleasesEnabled == true,
                             item = item,
                             posterCardStyle = posterCardStyle,
                             showLabel = uiState.posterLabelsEnabled,

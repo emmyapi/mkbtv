@@ -5,6 +5,8 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.mapper.toDomainOrNull
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
 import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.MovieDistributionDates
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.squareup.moshi.Json
@@ -13,6 +15,7 @@ import com.squareup.moshi.Moshi
 import java.io.IOException
 import java.net.Proxy
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -97,12 +100,38 @@ internal data class DiscoverReply(
 internal const val MOVIE_RELEASE_BATCH_LIMIT = 100
 private val movieReleaseIdPattern = Regex("(?:tt[0-9]{1,12}|tmdb:[1-9][0-9]{0,11})")
 internal val MetaPreview.movieReleaseId: String?
-    get() = if (type == ContentType.MOVIE) {
-        if (movieReleaseIdPattern.matches(id)) id else imdbId?.takeIf(movieReleaseIdPattern::matches)
-    } else null
+    get() = movieReleaseId(type, id, imdbId)
+internal val Meta.movieReleaseId: String?
+    get() = movieReleaseId(type, id, imdbId)
+
+private fun movieReleaseId(type: ContentType, id: String, imdbId: String?): String? {
+    if (type != ContentType.MOVIE) return null
+    return id.takeIf(movieReleaseIdPattern::matches) ?: imdbId?.takeIf(movieReleaseIdPattern::matches)
+}
 
 @JsonClass(generateAdapter = true)
-data class MovieRelease(val status: String, val homeDate: String? = null, val cinemaDate: String? = null)
+data class MovieRelease(
+    val status: String,
+    val homeDate: String? = null,
+    val cinemaDate: String? = null,
+    val ageRating: String? = null
+)
+
+internal fun movieReleaseFromDates(
+    local: MovieDistributionDates?,
+    household: MovieRelease? = null,
+    today: LocalDate = LocalDate.now(ZoneOffset.UTC)
+): MovieRelease? {
+    if (local == null || (local.cinemaDate == null && local.homeDate == null)) return household
+    val dates = local.merge(household?.let { MovieDistributionDates(it.cinemaDate, it.homeDate) })
+    val asOf = today.toString()
+    val phase = when {
+        household?.status == "home" || dates.homeDate?.let { it <= asOf } == true -> "home"
+        household?.status == "cinema" || dates.cinemaDate?.let { it <= asOf } == true -> "cinema"
+        else -> "upcoming"
+    }
+    return MovieRelease(phase, dates.homeDate, dates.cinemaDate, household?.ageRating)
+}
 
 @JsonClass(generateAdapter = true)
 internal data class MovieReleaseRequest(val ids: List<String>)

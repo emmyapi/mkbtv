@@ -24,7 +24,7 @@ internal fun shouldShowDiscoverInSearch(
         query.trim().length < MIN_SEARCH_QUERY_LENGTH &&
         submittedQuery.isBlank()
 
-enum class ReleaseWindow { ANY, HOME, CINEMA }
+enum class ReleaseWindow { ANY, UPCOMING, CINEMA, HOME }
 
 @Immutable
 data class SearchUiState(

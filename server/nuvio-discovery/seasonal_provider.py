@@ -153,11 +153,13 @@ def worldwide_release_rows(body, *, strict_dates=False):
                 if strict_dates and cells[0]:
                     raise ProviderError('unrecognized release date') from None
                 continue
-            yield {'date': released, 'type': cells[2], 'country': country[1] if country else ''}
+            yield {'date': released, 'type': cells[2], 'country': country[1] if country else '',
+                   'certification': cells[1]}
 
 
 def first_worldwide_release(body):
-    return min(worldwide_release_rows(body), key=lambda row: row['date'], default=None)
+    first = min(worldwide_release_rows(body), key=lambda row: row['date'], default=None)
+    return {key: first[key] for key in ('date', 'type', 'country')} if first else None
 
 
 def detail_tags(body):

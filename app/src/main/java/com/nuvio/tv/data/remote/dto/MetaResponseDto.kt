@@ -42,6 +42,7 @@ data class MetaDto(
     @Json(name = "behaviorHints") val behaviorHints: MetaBehaviorHintsDto? = null,
     @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null,
     @Json(name = "app_extras") val appExtras: AppExtrasDto? = null,
+    val ageRating: String? = null,
     @Json(name = "_rawPosterUrl") val rawPosterUrl: String? = null,
     @Json(name = "_hasPoster") val hasPoster: Boolean? = null,
     @Json(name = "_hasBackground") val hasBackground: Boolean? = null,

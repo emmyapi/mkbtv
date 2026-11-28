@@ -5,6 +5,8 @@ import com.nuvio.tv.data.repository.DiscoverFailure
 import com.nuvio.tv.data.repository.DiscoverServiceException
 import com.nuvio.tv.data.repository.NuvioCatalogArtwork
 import com.nuvio.tv.data.repository.DiscoverSearchApi
+import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseId
 import com.nuvio.tv.data.repository.DiscoverSearchRequest
 import com.nuvio.tv.data.repository.DiscoverSnapshotExpiredException
 import android.content.Context
@@ -117,6 +119,11 @@ class SearchViewModel @Inject constructor(
     private var discoverRequest: DiscoverSearchRequest? = null
     private var discoverCursor: String? = null
     private var hideUnreleasedContent = false
+    private var movieReleaseProfile: Int? = null
+    private val movieReleaseLoader = MovieReleaseLoader(viewModelScope, discoverSearch::movieReleases, ::publishMovieReleases)
+    private var discoverRefreshJob: Job? = null
+    private var discoverRefreshAttempts = 0
+    private var failedDiscoverRefresh = false
 
     private companion object {
         const val SUGGESTION_DEBOUNCE_MS = 150L
@@ -136,6 +143,21 @@ class SearchViewModel @Inject constructor(
     init {
         posterOptions.bind(viewModelScope)
         viewModelScope.launch {
+            discoverSearch.movieReleaseProfile.collect { profile ->
+                if (movieReleaseProfile == profile) return@collect
+                movieReleaseProfile = profile
+                resetReleaseLookups()
+                val wasFiltered = _uiState.value.discoverReleaseWindow != ReleaseWindow.ANY
+                _uiState.update { it.copy(movieReleasesEnabled = profile != null, searchReleaseWindow = ReleaseWindow.ANY,
+                    discoverReleaseWindow = ReleaseWindow.ANY) }
+                if (wasFiltered) restartDiscoverQuery()
+                if (profile == null || profile == profileManager.activeProfileId.value && discoverProfileId == profile) {
+                    updateCatalogRowsNow()
+                    requestDiscoverMovieReleases(_uiState.value.discoverResults.take(12))
+                }
+            }
+        }
+        viewModelScope.launch {
             watchProgressRepository.observeWatchedMovieIds()
                 .collect { ids -> _watchedMovieIds.value = ids }
         }
@@ -152,6 +174,17 @@ class SearchViewModel @Inject constructor(
                 if (profileId != discoverProfileId) {
                     val wasOpen = _uiState.value.discoverInitialized
                     discoverProfileId = profileId
+                    cancelSearchRun()
+                    liveSearchJob?.cancel()
+                    suggestionJob?.cancel()
+                    catalogRowsUpdateJob?.cancel()
+                    resetCatalogAccumulator()
+                    lastRequestKey = null
+                    lastCompletedRequestKey = null
+                    resetReleaseLookups()
+                    _uiState.update { it.copy(query = "", submittedQuery = "", isSearching = false, error = null,
+                        catalogRows = emptyList(), suggestions = emptyList(), searchReleaseWindow = ReleaseWindow.ANY,
+                        movieReleasesEnabled = movieReleaseProfile == profileId) }
                     clearDiscover()
                     if (wasOpen) ensureDiscoverLoaded()
                 }
@@ -264,6 +297,20 @@ class SearchViewModel @Inject constructor(
                 applyDiscoverFilter { DiscoverVoiceQuery.apply(event.phrase, it) }
                 ensureDiscoverLoaded()
             }
+            is SearchEvent.SelectSearchReleaseWindow -> {
+                if (_uiState.value.movieReleasesEnabled && _uiState.value.searchReleaseWindow != event.window) {
+                    if (event.window != ReleaseWindow.ANY) movieReleaseLoader.retryUnsettled()
+                    _uiState.update { it.copy(searchReleaseWindow = event.window) }
+                    updateCatalogRowsNow()
+                }
+            }
+            is SearchEvent.SelectDiscoverReleaseWindow -> {
+                if (_uiState.value.movieReleasesEnabled) applyDiscoverFilter {
+                    if (event.window != ReleaseWindow.ANY && it.selectedDiscoverType == "series") {
+                        it.withDiscoverType("movie").copy(discoverReleaseWindow = event.window)
+                    } else it.copy(discoverReleaseWindow = event.window)
+                }
+            }
             is SearchEvent.SelectDiscoverPeriod -> applyDiscoverFilter { it.copy(discoverPeriod = event.period) }
             is SearchEvent.SelectDiscoverMinRating -> applyDiscoverFilter { it.copy(discoverMinRating = event.rating) }
             is SearchEvent.SelectDiscoverSort -> applyDiscoverFilter { it.copy(discoverSort = event.sort) }
@@ -271,7 +318,10 @@ class SearchViewModel @Inject constructor(
             SearchEvent.ResetDiscoverFilters -> resetDiscoverFilters()
             SearchEvent.RetryDiscover -> {
                 if (_uiState.value.discoverError) {
-                    if (discoverRequest == null) restartDiscoverQuery() else fetchDiscoverPage()
+                    if (discoverRequest == null) restartDiscoverQuery() else fetchDiscoverPage(refresh = failedDiscoverRefresh)
+                } else if (_uiState.value.discoverReleasePending) {
+                    discoverRefreshAttempts = 0
+                    fetchDiscoverPage(refresh = true)
                 }
             }
             SearchEvent.LoadNextDiscoverResults -> {
@@ -281,6 +331,7 @@ class SearchViewModel @Inject constructor(
                 // An explicit retry must refetch even though nothing about the request changed.
                 lastRequestKey = null
                 lastCompletedRequestKey = null
+                resetReleaseLookups()
                 cancelSearchRun()
                 performSearch(uiState.value.submittedQuery.ifBlank { uiState.value.query })
             }
@@ -288,6 +339,7 @@ class SearchViewModel @Inject constructor(
     }
 
     private fun onQueryChanged(query: String) {
+        if (_uiState.value.query.trim() != query.trim()) resetReleaseLookups()
         _uiState.update {
             val trimmedInput = query.trim()
             // Narrow the strip to what still matches before anything is fetched, so a letter
@@ -623,6 +675,7 @@ class SearchViewModel @Inject constructor(
             val alreadySatisfied = requestKey == lastRequestKey &&
                 (requestKey == lastCompletedRequestKey || activeSearchJobs.any { it.isActive })
             if (alreadySatisfied) {
+                updateCatalogRowsNow()
                 // An explicit submit that lands on a query the live search already finished still
                 // counts as a search the user confirmed, so remember it instead of skipping out
                 // of the history save below.
@@ -920,31 +973,67 @@ class SearchViewModel @Inject constructor(
     }
 
     private fun updateCatalogRowsNow() {
-        _uiState.update { state ->
-            val orderedRows = catalogOrder.map { key ->
-                catalogsMap[key]
-                    ?: state.catalogRows.find {
-                        it.stableKey() == key
-                    }
-            }.filterNotNull().filter { row ->
-                row.hasMore || row.items.isNotEmpty()
+        val state = _uiState.value
+        val placeholders = state.catalogRows.filter { it.items.firstOrNull()?.id?.startsWith("__placeholder_") == true }
+            .associateBy { it.stableKey() }
+        val today = if (hideUnreleasedContent) LocalDate.now() else null
+        val rows = catalogOrder.mapNotNull { key ->
+            val row = catalogsMap[key] ?: return@mapNotNull placeholders[key]
+            when {
+                !row.hasMore && row.items.isEmpty() -> null
+                today != null -> row.filterReleasedItems(today)
+                else -> row
             }
-            val filteredRows = if (hideUnreleasedContent) {
-                val today = LocalDate.now()
-                orderedRows.map { row ->
-                    if (row.isLoading && row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true) {
-                        row
-                    } else {
-                        row.filterReleasedItems(today)
-                    }
-                }
-            } else {
-                orderedRows
-            }
-            state.copy(
-                catalogRows = filteredRows
-            )
         }
+        val window = state.searchReleaseWindow
+        val profile = movieReleaseProfile
+        if (profile != null && profile == profileManager.activeProfileId.value && state.query.trim() == activeSearchQuery) {
+            // All loaded candidates need classification for a filter. For ordinary browsing, seed
+            // only the first viewport; scrolling queues subsequent visible cards.
+            val candidates = if (window == ReleaseWindow.ANY) {
+                rows.asSequence().take(3).flatMap { it.items.asSequence().take(8) }
+            } else rows.asSequence().flatMap { it.items.asSequence() }
+            movieReleaseLoader.request(profile, candidates.mapNotNull { it.movieReleaseId }, revisit = false)
+        }
+        val visible = if (window == ReleaseWindow.ANY) rows else {
+            val status = window.name.lowercase()
+            rows.mapNotNull { row ->
+                val matches = row.items.filter { state.movieRelease(it)?.status == status }
+                // Some addon catalogs contain mixed types. Preserve their movie matches and
+                // their original server offset even when this whole page was filtered out.
+                val canPageMovies = row.hasMore && (row.type == ContentType.MOVIE || row.type == ContentType.UNKNOWN ||
+                    row.items.any { it.type == ContentType.MOVIE })
+                if (matches.isNotEmpty() || canPageMovies) row.copy(items = matches) else null
+            }
+        }
+        val pending = window != ReleaseWindow.ANY && rows.any { row ->
+            row.items.any { it.movieReleaseId?.let(movieReleaseLoader::isPending) == true }
+        }
+        _uiState.update { it.copy(catalogRows = visible, searchReleasePending = pending) }
+    }
+
+    fun requestMovieReleases(items: List<MetaPreview>) {
+        val profile = movieReleaseProfile ?: return
+        if (profile == profileManager.activeProfileId.value && profile == discoverProfileId) {
+            movieReleaseLoader.request(profile, items.asSequence().mapNotNull { it.movieReleaseId })
+        }
+    }
+
+    fun requestDiscoverMovieReleases(items: List<MetaPreview>) {
+        // The private watch filter may read facts already in the household index. Using its
+        // result IDs to schedule provider requests would reveal which movies the viewer watched.
+        if (_uiState.value.discoverWatch == DiscoverWatch.ANY) requestMovieReleases(items)
+    }
+
+    private fun publishMovieReleases(profile: Int, updates: Map<String, MovieRelease>) {
+        if (profile != movieReleaseProfile || profile != profileManager.activeProfileId.value) return
+        if (updates.isNotEmpty()) _uiState.update { it.copy(movieReleases = it.movieReleases + updates) }
+        if (_uiState.value.searchReleaseWindow != ReleaseWindow.ANY) updateCatalogRowsNow()
+    }
+
+    private fun resetReleaseLookups() {
+        movieReleaseLoader.reset()
+        _uiState.update { it.copy(movieReleases = emptyMap(), searchReleasePending = false) }
     }
 
     private suspend fun searchAddons(): List<Addon> =
@@ -960,10 +1049,13 @@ class SearchViewModel @Inject constructor(
 
     private fun selectDiscoverType(type: String) {
         if (type !in discoverTypes) return
-        applyDiscoverFilter { state ->
-            val catalog = DiscoverCatalogOption.entries.firstOrNull { it.key == state.selectedDiscoverCatalogKey && it.availableFor(type) }
-            state.copy(selectedDiscoverType = type, selectedDiscoverCatalogKey = (catalog ?: DiscoverCatalogOption.ALL).key)
-        }
+        applyDiscoverFilter { it.withDiscoverType(type) }
+    }
+
+    private fun SearchUiState.withDiscoverType(type: String): SearchUiState {
+        val catalog = DiscoverCatalogOption.entries.firstOrNull { it.key == selectedDiscoverCatalogKey && it.availableFor(type) }
+        return copy(selectedDiscoverType = type, selectedDiscoverCatalogKey = (catalog ?: DiscoverCatalogOption.ALL).key,
+            discoverReleaseWindow = if (type == "series") ReleaseWindow.ANY else discoverReleaseWindow)
     }
 
     private fun selectDiscoverCatalog(key: String) {
@@ -979,12 +1071,15 @@ class SearchViewModel @Inject constructor(
                 discoverTotal = null, discoverSources = emptyList(), discoverHasMore = false, discoverResults = emptyList(), discoverFailure = null,
                 selectedDiscoverType = DISCOVER_TYPE_ANY, selectedDiscoverCatalogKey = DiscoverCatalogOption.ALL.key,
                 selectedDiscoverGenre = null, discoverKeyword = "", discoverPeriod = DiscoverPeriod.ANY,
-                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING)
+                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING,
+                discoverReleaseWindow = ReleaseWindow.ANY, discoverReleasePending = false)
         }
     }
 
     private fun cancelDiscoverQuery() {
         discoverGeneration++
+        discoverRefreshJob?.cancel()
+        discoverRefreshAttempts = 0
         discoverCriteriaJob?.cancel()
         discoverJob?.cancel()
         discoverRequest = null
@@ -1001,7 +1096,8 @@ class SearchViewModel @Inject constructor(
         applyDiscoverFilter {
             it.copy(selectedDiscoverType = DISCOVER_TYPE_ANY, selectedDiscoverCatalogKey = DiscoverCatalogOption.ALL.key,
                 selectedDiscoverGenre = null, discoverKeyword = "", discoverPeriod = DiscoverPeriod.ANY,
-                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING)
+                discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING,
+                discoverReleaseWindow = ReleaseWindow.ANY, discoverReleasePending = false)
         }
     }
 
@@ -1023,10 +1119,11 @@ class SearchViewModel @Inject constructor(
         val profileId = discoverProfileId
         val generation = discoverGeneration
         clearDiscoverPage()
+        if (_uiState.value.submittedQuery.isBlank()) resetReleaseLookups()
         discoverCriteriaJob = viewModelScope.launch {
             try {
                 val watchMovies = criteria.discoverWatch != DiscoverWatch.ANY && criteria.selectedDiscoverType != "series"
-                val watchSeries = criteria.discoverWatch != DiscoverWatch.ANY && criteria.selectedDiscoverType != "movie"
+                val watchSeries = criteria.discoverWatch != DiscoverWatch.ANY && criteria.selectedDiscoverType != "movie" && criteria.discoverReleaseWindow == ReleaseWindow.ANY
                 val movies = if (watchMovies) watchProgressRepository.observeWatchedMovieIds() else flowOf(emptySet())
                 val series = if (watchSeries) watchedSeriesStateHolder.observeForProfile(profileId) else flowOf(emptySet())
                 combine(layoutPreferenceDataStore.hideUnreleasedContent, movies, series) { hide, seenMovies, seenSeries ->
@@ -1036,12 +1133,15 @@ class SearchViewModel @Inject constructor(
                         keyword = criteria.discoverKeyword, period = criteria.discoverPeriod.name.lowercase(),
                         minRating = criteria.discoverMinRating, watch = criteria.discoverWatch.name.lowercase(),
                         sort = criteria.discoverSort.name.lowercase(), hideUnreleased = hide,
-                        watchedMovies = seenMovies.sorted(), watchedSeries = seenSeries.sorted()
+                        watchedMovies = seenMovies.sorted(), watchedSeries = seenSeries.sorted(),
+                        releaseWindow = criteria.discoverReleaseWindow.name.lowercase()
                     )
                 }.distinctUntilChanged().collect { request ->
                     if (!isCurrentDiscover(generation, profileId)) return@collect
                     discoverJob?.cancel()
                     discoverJob = null
+                    discoverRefreshJob?.cancel()
+                    discoverRefreshAttempts = 0
                     discoverRequest = request
                     discoverCursor = null
                     clearDiscoverPage()
@@ -1063,7 +1163,7 @@ class SearchViewModel @Inject constructor(
 
     private fun clearDiscoverPage() {
         _uiState.update {
-            it.copy(discoverLoading = true, discoverLoadingMore = false, discoverResults = emptyList(),
+            it.copy(discoverLoading = true, discoverLoadingMore = false, discoverReleasePending = false, discoverResults = emptyList(),
                 discoverTotal = null, discoverSources = emptyList(), discoverHasMore = false, discoverFailure = null)
         }
     }
@@ -1072,12 +1172,13 @@ class SearchViewModel @Inject constructor(
         _uiState.update { it.copy(discoverLoading = false, discoverLoadingMore = false, discoverFailure = failure) }
     }
 
-    private fun fetchDiscoverPage() {
+    private fun fetchDiscoverPage(refresh: Boolean = false) {
         val request = discoverRequest ?: return
         val generation = discoverGeneration
         if (discoverJob?.isActive == true || !isCurrentDiscover(generation, request.profileId)) return
-        var cursor = discoverCursor
-        _uiState.update { it.copy(discoverLoading = cursor == null, discoverLoadingMore = cursor != null, discoverFailure = null) }
+        discoverRefreshJob?.cancel()
+        var cursor = if (refresh) null else discoverCursor
+        if (!refresh) _uiState.update { it.copy(discoverLoading = cursor == null, discoverLoadingMore = cursor != null, discoverFailure = null) }
         fun isCurrent() = isCurrentDiscover(generation, request.profileId) && discoverRequest === request
         discoverJob = viewModelScope.launch {
             try {
@@ -1102,13 +1203,27 @@ class SearchViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(discoverResults = if (cursor == null) page.items else it.discoverResults + page.items,
                         discoverTotal = page.total, discoverSources = page.sources,
-                        discoverHasMore = page.nextCursor != null,
+                        movieReleases = if (page.movieReleases.isEmpty()) it.movieReleases else it.movieReleases + page.movieReleases,
+                        discoverHasMore = page.nextCursor != null, discoverReleasePending = page.releasePending,
                         discoverLoading = false, discoverLoadingMore = false, discoverFailure = null)
+                }
+                requestDiscoverMovieReleases(page.items.take(12))
+                // A growing result set can change the order/total. Refresh the first page in place,
+                // then preserve the snapshot once the viewer starts paging it.
+                if (cursor == null && page.releasePending && discoverRefreshAttempts < 3) {
+                    val wait = 2_000L shl discoverRefreshAttempts++
+                    discoverRefreshJob = viewModelScope.launch {
+                        delay(wait)
+                        if (isCurrent()) fetchDiscoverPage(refresh = true)
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (isCurrent()) showDiscoverError((error as? DiscoverServiceException)?.failure ?: DiscoverFailure.OTHER)
+                if (isCurrent()) {
+                    failedDiscoverRefresh = refresh
+                    showDiscoverError((error as? DiscoverServiceException)?.failure ?: DiscoverFailure.OTHER)
+                }
             }
         }
     }

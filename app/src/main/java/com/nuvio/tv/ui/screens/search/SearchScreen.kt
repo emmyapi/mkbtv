@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -108,6 +109,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
 private const val SEARCH_SKELETON_ROW_COUNT = 2
@@ -216,8 +218,9 @@ fun SearchScreen(
         }
     }
     // A filtered page can still offer See All to reach later titles.
-    val visibleCatalogRows = remember(uiState.catalogRows) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() || it.hasMore }
+    val visibleCatalogRows = remember(uiState.catalogRows, uiState.searchReleaseWindow) {
+        val rows = uiState.catalogRows.filter { it.items.isNotEmpty() || it.hasMore }.distinctBy { it.stableKey() }
+        if (uiState.searchReleaseWindow == ReleaseWindow.ANY) rows else rows.sortedBy { it.items.isEmpty() }
     }
     LaunchedEffect(visibleRowKeys) {
         searchRowStates.keys.retainAll(visibleRowKeys)
@@ -249,13 +252,12 @@ fun SearchScreen(
         isDiscoverMode,
         uiState.discoverResults,
         trimmedSubmittedQuery,
-        uiState.catalogRows
+        visibleCatalogRows
     ) {
         if (isDiscoverMode) {
             false
         } else {
-            trimmedSubmittedQuery.length >= MIN_SEARCH_QUERY_LENGTH &&
-                uiState.catalogRows.any { it.items.isNotEmpty() }
+            trimmedSubmittedQuery.length >= MIN_SEARCH_QUERY_LENGTH && visibleCatalogRows.isNotEmpty()
         }
     }
     val submitCurrentQuery: (String) -> Unit = { submittedQuery ->
@@ -519,6 +521,9 @@ fun SearchScreen(
                     },
                     discoverFocusRequester = discoverButtonFocusRequester,
                     showDiscoverButton = uiState.discoverLocation == DiscoverLocation.IN_SEARCH,
+                    showReleaseFilter = uiState.movieReleasesEnabled && trimmedQuery.length >= MIN_SEARCH_QUERY_LENGTH,
+                    releaseWindow = uiState.searchReleaseWindow,
+                    onReleaseWindowSelected = { viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(it)) },
                     keyboardController = keyboardController,
                     clearHistoryFocusRequester = if (showRecentSearches) recentClearHistoryFocusRequester else null,
                     isScreenActive = isScreenActive
@@ -646,8 +651,13 @@ fun SearchScreen(
                     !uiState.isSearching && !hasPendingUnsubmittedQuery && visibleCatalogRows.isEmpty() -> {
                         item {
                             EmptyScreenState(
-                                title = stringResource(R.string.search_no_results_title),
-                                subtitle = stringResource(R.string.search_no_results_subtitle),
+                                title = stringResource(when {
+                                    uiState.searchReleaseWindow == ReleaseWindow.ANY -> R.string.search_no_results_title
+                                    uiState.searchReleasePending -> R.string.movie_release_checking
+                                    else -> R.string.movie_release_no_matches
+                                }),
+                                subtitle = stringResource(if (uiState.searchReleaseWindow == ReleaseWindow.ANY)
+                                    R.string.search_no_results_subtitle else R.string.movie_release_filter_hint),
                                 icon = Icons.Default.Search
                             )
                         }
@@ -656,9 +666,7 @@ fun SearchScreen(
                     else -> {
                         itemsIndexed(
                             items = visibleCatalogRows,
-                            key = { index, item ->
-                                "${item.stableKey()}_$index"
-                            },
+                            key = { _, item -> item.stableKey() },
                             contentType = { _, _ -> "catalog_row" }
                         ) { index, catalogRow ->
                             val catalogKey = catalogRow.stableKey()
@@ -675,6 +683,22 @@ fun SearchScreen(
                             }
                             val rowFocusRequester = searchRowFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
                             val entryFocusRequester = searchRowEntryFocusRequesters.getOrPut(catalogKey) { FocusRequester() }
+                            if (focusResults && index == 0 && catalogRow.items.isEmpty() && showSeeAll) {
+                                LaunchedEffect(entryFocusRequester) {
+                                    if (entryFocusRequester.requestFocusAfterFrames()) {
+                                        focusResults = false
+                                        focusedResultItemIndex.intValue = 0
+                                        lastFocusedRowKey = catalogKey
+                                    }
+                                }
+                            }
+                            if (uiState.movieReleasesEnabled && !isPlaceholder) {
+                                LaunchedEffect(listState, catalogRow.items) {
+                                    snapshotFlow {
+                                        listState.layoutInfo.visibleItemsInfo.mapNotNull { catalogRow.items.getOrNull(it.index) }
+                                    }.collect(viewModel::requestMovieReleases)
+                                }
+                            }
 
                             CatalogRowSection(
                                 catalogRow = catalogRow,
@@ -699,6 +723,7 @@ fun SearchScreen(
                                 } else {
                                     uiState.query
                                 },
+                                movieRelease = uiState::movieRelease,
                                 isItemWatched = { item ->
                                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
                                     if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
@@ -1043,6 +1068,9 @@ private fun SearchInputField(
     onOpenDiscover: () -> Unit,
     discoverFocusRequester: FocusRequester? = null,
     showDiscoverButton: Boolean,
+    showReleaseFilter: Boolean,
+    releaseWindow: ReleaseWindow,
+    onReleaseWindowSelected: (ReleaseWindow) -> Unit,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     clearHistoryFocusRequester: FocusRequester?,
     isScreenActive: Boolean = true
@@ -1050,6 +1078,7 @@ private fun SearchInputField(
     var isVoiceButtonFocused by remember { mutableStateOf(false) }
     val inputView = LocalView.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val releaseFocusRequester = remember { FocusRequester() }
     val towardDiscoverKey = if (isRtl) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
 
     Row(
@@ -1059,6 +1088,14 @@ private fun SearchInputField(
             .focusGroup(),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (showReleaseFilter) {
+            MovieReleasePicker(
+                value = releaseWindow,
+                onSelect = onReleaseWindowSelected,
+                modifier = Modifier.width(170.dp).focusRequester(releaseFocusRequester)
+            )
+            Spacer(modifier = Modifier.width(NuvioTheme.spacing.md))
+        }
         if (showDiscoverButton) {
             Button(
                 onClick = onOpenDiscover,
@@ -1188,11 +1225,11 @@ private fun SearchInputField(
                         towardDiscoverKey -> {
                             val keyboardHidden = ViewCompat.getRootWindowInsets(inputView)
                                 ?.isVisible(WindowInsetsCompat.Type.ime()) == false
-                            if (showDiscoverButton && keyboardHidden &&
+                            if ((showDiscoverButton || showReleaseFilter) && keyboardHidden &&
                                 keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
                             ) {
-                                val target = voiceFocusRequester ?: discoverFocusRequester
-                                return@onPreviewKeyEvent target?.requestFocus() == true
+                                val target = voiceFocusRequester ?: discoverFocusRequester.takeIf { showDiscoverButton } ?: releaseFocusRequester
+                                return@onPreviewKeyEvent target.requestFocus()
                             }
                         }
 

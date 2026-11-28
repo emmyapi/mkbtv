@@ -43,6 +43,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.withResumed
 import androidx.compose.runtime.LaunchedEffect
@@ -91,6 +92,7 @@ import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
@@ -118,6 +120,7 @@ internal fun DiscoverSection(
     onRestoreFocusedItemHandled: () -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onDiscoverItemFocused: (Int) -> Unit,
+    requestMovieReleases: (List<MetaPreview>) -> Unit,
     onFilterEvent: (SearchEvent) -> Unit,
     onLoadMore: () -> Unit,
     resolveArtwork: suspend (MetaPreview) -> MetaPreview?,
@@ -279,6 +282,15 @@ internal fun DiscoverSection(
                     blockFocus = blockFilterFocus
                 )
 
+                if (uiState.movieReleasesEnabled && uiState.selectedDiscoverType != "series") {
+                    MovieReleasePicker(
+                        value = uiState.discoverReleaseWindow,
+                        onSelect = { onFilterEvent(SearchEvent.SelectDiscoverReleaseWindow(it)) },
+                        modifier = Modifier.weight(1f),
+                        blockFocus = blockFilterFocus
+                    )
+                }
+
                 DiscoverDropdownPicker(
                     modifier = Modifier.weight(1f),
                     title = stringResource(R.string.discover_filter_genre),
@@ -355,11 +367,17 @@ internal fun DiscoverSection(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.sm)
             ) {
                 Text(
-                    text = pluralStringResource(R.plurals.discover_match_count, total, total),
+                    text = if (uiState.discoverReleasePending && total == 0) stringResource(R.string.movie_release_checking)
+                        else pluralStringResource(R.plurals.discover_match_count, total, total),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioTheme.colors.TextSecondary
                 )
+                if (uiState.discoverReleasePending) {
+                    Button(onClick = { onFilterEvent(SearchEvent.RetryDiscover) }) {
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
                 for (source in uiState.discoverSources) {
                     var focused by remember(source) { mutableStateOf(false) }
                     Text(
@@ -428,6 +446,10 @@ internal fun DiscoverSection(
                     DiscoverGrid(
                         items = uiState.discoverResults,
                         resolveArtwork = resolveArtwork,
+                        movieRelease = uiState::movieRelease,
+                        requestMovieReleases = requestMovieReleases.takeIf {
+                            uiState.movieReleasesEnabled && uiState.discoverWatch == DiscoverWatch.ANY
+                        },
                         posterPattern = uiState.discoverPosterPattern,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardStyle = posterCardStyle,
@@ -460,20 +482,48 @@ internal fun DiscoverSection(
                         },
                         filterKey = listOf(uiState.selectedDiscoverType, uiState.selectedDiscoverCatalogKey,
                             uiState.selectedDiscoverGenre, uiState.discoverKeyword, uiState.discoverPeriod,
-                            uiState.discoverMinRating, uiState.discoverWatch, uiState.discoverSort)
+                            uiState.discoverMinRating, uiState.discoverWatch, uiState.discoverSort, uiState.discoverReleaseWindow)
                     )
                 }
             }
 
-            uiState.discoverTotal == 0 -> {
+            uiState.discoverTotal == 0 && !uiState.discoverReleasePending -> {
                 EmptyScreenState(
-                    title = stringResource(R.string.discover_no_matches),
-                    subtitle = stringResource(R.string.discover_empty_filter_hint),
+                    title = stringResource(if (uiState.discoverReleaseWindow == ReleaseWindow.ANY)
+                        R.string.discover_no_matches else R.string.movie_release_no_matches),
+                    subtitle = stringResource(if (uiState.discoverReleaseWindow == ReleaseWindow.ANY)
+                        R.string.discover_empty_filter_hint else R.string.movie_release_filter_hint),
                     height = 140.dp
                 )
             }
         }
     }
+}
+
+@Composable
+internal fun MovieReleasePicker(
+    value: ReleaseWindow,
+    onSelect: (ReleaseWindow) -> Unit,
+    modifier: Modifier = Modifier,
+    blockFocus: Boolean = false
+) {
+    val options = ReleaseWindow.entries.map {
+        val label = when (it) {
+            ReleaseWindow.ANY -> R.string.discover_filter_any
+            ReleaseWindow.HOME -> R.string.movie_release_home
+            ReleaseWindow.CINEMA -> R.string.movie_release_cinema
+        }
+        DiscoverOption(stringResource(label), it.name)
+    }
+    DiscoverDropdownPicker(
+        modifier = modifier,
+        title = stringResource(R.string.movie_release_filter),
+        value = options.first { it.value == value.name }.label,
+        selectedValue = value.name,
+        options = options,
+        onSelect = { onSelect(ReleaseWindow.valueOf(it.value)) },
+        blockFocus = blockFocus
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -723,11 +773,20 @@ internal fun DiscoverGrid(
     onLoadMore: () -> Unit,
     onItemClick: (Int, MetaPreview) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
+    movieRelease: ((MetaPreview) -> MovieRelease?)? = null,
+    requestMovieReleases: ((List<MetaPreview>) -> Unit)? = null,
     filterKey: List<Any?> = emptyList()
 ) {
     val context = LocalContext.current
     val restoreFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
+    if (requestMovieReleases != null) {
+        LaunchedEffect(gridState, items, requestMovieReleases) {
+            snapshotFlow {
+                gridState.layoutInfo.visibleItemsInfo.mapNotNull { items.getOrNull(it.index) }
+            }.collect(requestMovieReleases)
+        }
+    }
     var sizeBeforeLoadMore by remember(filterKey) { mutableStateOf<Int?>(null) }
 
     // Scroll to top only when the filter combination actually changes (not on initial composition / back navigation).
@@ -905,6 +964,7 @@ internal fun DiscoverGrid(
             }
             GridContentCard(
                 item = displayItem,
+                movieRelease = movieRelease?.invoke(item),
                 indexPosterUrl = if (artwork != null) item.poster else null,
                 showLabel = showLabels,
                 onClick = {

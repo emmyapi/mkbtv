@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
+import com.nuvio.tv.data.repository.MovieRelease
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -72,6 +73,7 @@ fun GridContentCard(
     showLabel: Boolean = true,
     showLogo: Boolean = false,
     imageCrossfade: Boolean = true,
+    movieRelease: MovieRelease? = null,
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
@@ -351,6 +353,13 @@ fun GridContentCard(
                     )
                 }
 
+                if (movieRelease != null) {
+                    MovieReleaseBadge(
+                        release = movieRelease,
+                        modifier = Modifier.align(Alignment.TopStart).zIndex(2f)
+                            .padding(start = 4.dp, top = 4.dp, end = if (isWatched) 30.dp else 4.dp)
+                    )
+                }
                 if (isWatched || item.seasonalRewatchAt != null) {
                     WatchedMarker(
                         rewatch = item.seasonalRewatchAt != null,

@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.search
 
+import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.MovieReleaseReply
 import com.nuvio.tv.data.repository.DiscoverSource
 import com.nuvio.tv.data.repository.DiscoverFailure
 import com.nuvio.tv.data.repository.DiscoverServiceException
@@ -385,6 +387,159 @@ class SearchViewModelPaginationTest {
         assertTrue(viewModel.uiState.value.discoverResults.isEmpty())
     }
 
+    @Test
+    fun `movie badges never hold the first title row and release filters preserve raw order and paging`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<MovieReleaseReply>()
+        val calls = mutableListOf<List<String>>()
+        val movies = listOf(title("tt1"), title("tmdb:2"), title("tt3"), title("local").copy(imdbId = "tt1"))
+        val series = title("tt1").copy(type = ContentType.SERIES, rawType = "series")
+        val repository = RecordingCatalogRepository(rowType = ContentType.UNKNOWN, itemsForPage = { _, skip ->
+            if (skip == 0) movies + series else listOf(title("tt4"))
+        })
+        val viewModel = newViewModel(repository, releaseProfile = 1, releases = { _, ids ->
+            calls += ids
+            if (ids == listOf("tt4")) MovieReleaseReply(mapOf("tt4" to MovieRelease("home")), false)
+            else gate.await()
+        })
+        viewModel.onEvent(SearchEvent.QueryChanged("films"))
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        advanceUntilIdle()
+        val initial = viewModel.uiState.value
+        assertEquals(movies + series, initial.catalogRows.single().items)
+        assertFalse(initial.isSearching)
+        assertEquals(listOf(listOf("tt1", "tmdb:2", "tt3")), calls)
+        viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(ReleaseWindow.HOME))
+        assertTrue(viewModel.uiState.value.searchReleasePending)
+        assertTrue(viewModel.uiState.value.catalogRows.single().items.isEmpty())
+        gate.complete(MovieReleaseReply(mapOf("tt1" to MovieRelease("home"), "tmdb:2" to MovieRelease("cinema"),
+            "tt3" to MovieRelease("unknown")), false))
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.searchReleasePending)
+        val filtered = viewModel.uiState.value.catalogRows.single()
+        assertEquals(listOf("tt1", "local"), filtered.items.map { it.id })
+        assertEquals(null, viewModel.uiState.value.movieRelease(series))
+        viewModel.onEvent(SearchEvent.LoadMoreCatalog(filtered.stableKey()))
+        advanceUntilIdle()
+        assertEquals(listOf("tt1", "local", "tt4"), viewModel.uiState.value.catalogRows.single().items.map { it.id })
+        viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(ReleaseWindow.CINEMA))
+        assertEquals(listOf("tmdb:2"), viewModel.uiState.value.catalogRows.single().items.map { it.id })
+        viewModel.onEvent(SearchEvent.SelectSearchReleaseWindow(ReleaseWindow.ANY))
+        assertEquals(movies + series + title("tt4"), viewModel.uiState.value.catalogRows.single().items)
+        assertEquals(listOf(listOf("tt1", "tmdb:2", "tt3"), listOf("tt4")), calls)
+    }
+
+    @Test
+    fun `stale release responses cannot add badges after changing query or profile`() = runTest {
+        val late = mutableListOf<Continuation<MovieReleaseReply>>()
+        val profile = MutableStateFlow(1)
+        val repository = RecordingCatalogRepository(itemsForPage = { query, _ ->
+            listOf(title(if (query == "alpha") "tt1" else "tt2"))
+        })
+        val viewModel = newViewModel(repository, releaseProfile = 1, profile = profile, releases = { _, _ ->
+            suspendCoroutine { late += it }
+        })
+        viewModel.onEvent(SearchEvent.QueryChanged("alpha"))
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        advanceUntilIdle()
+        viewModel.onEvent(SearchEvent.QueryChanged("beta"))
+        viewModel.onEvent(SearchEvent.SubmitSearch)
+        advanceUntilIdle()
+        assertEquals(2, late.size)
+        late[0].resume(MovieReleaseReply(mapOf("tt1" to MovieRelease("home")), true))
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.movieReleases.isEmpty())
+        profile.value = 2
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.query.isEmpty())
+        assertFalse(viewModel.uiState.value.movieReleasesEnabled)
+        late[1].resume(MovieReleaseReply(mapOf("tt2" to MovieRelease("cinema")), false))
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.movieReleases.isEmpty())
+    }
+
+    @Test
+    fun `Discover release filters show partial results then refresh without mixing pages`() = runTest {
+        val calls = mutableListOf<DiscoverSearchRequest>()
+        val viewModel = newViewModel(RecordingCatalogRepository(), discover = true, releaseProfile = 1, respond = { request ->
+            calls += request
+            when {
+                request.releaseWindow == "any" -> DiscoverSearchPage(emptyList(), 0, null)
+                request.cursor != null -> DiscoverSearchPage(listOf(title("tt3")), 3, null)
+                calls.count { it.releaseWindow == "home" } == 1 ->
+                    DiscoverSearchPage(listOf(title("tt1")), 1, null, releasePending = true)
+                else -> DiscoverSearchPage(listOf(title("tt1"), title("tt2")), 3, "v2:2")
+            }
+        })
+        runCurrent()
+        viewModel.onEvent(SearchEvent.SelectDiscoverType("series"))
+        viewModel.onEvent(SearchEvent.SelectDiscoverReleaseWindow(ReleaseWindow.HOME))
+        viewModel.ensureDiscoverLoaded()
+        runCurrent()
+        assertEquals("movie", calls.single().type)
+        assertTrue(viewModel.uiState.value.discoverReleasePending)
+        assertEquals(listOf("tt1"), viewModel.uiState.value.discoverResults.map { it.id })
+        advanceUntilIdle()
+        assertEquals(listOf("tt1", "tt2"), viewModel.uiState.value.discoverResults.map { it.id })
+        assertFalse(viewModel.uiState.value.discoverReleasePending)
+        viewModel.onEvent(SearchEvent.LoadNextDiscoverResults)
+        advanceUntilIdle()
+        assertEquals(listOf(null, null, "v2:2"), calls.map { it.cursor })
+        assertEquals(listOf("tt1", "tt2", "tt3"), viewModel.uiState.value.discoverResults.map { it.id })
+        viewModel.onEvent(SearchEvent.SelectDiscoverType("series"))
+        advanceUntilIdle()
+        assertEquals("any", calls.last().releaseWindow)
+        assertEquals("series", calls.last().type)
+    }
+
+    @Test
+    fun `watched and unwatched Discover read cached badges without scheduling provider lookups`() = runTest {
+        val calls = mutableListOf<List<String>>()
+        val viewModel = newViewModel(RecordingCatalogRepository(), discover = true, releaseProfile = 1,
+            releases = { _, ids -> calls += ids; MovieReleaseReply(emptyMap(), false) }, respond = { request ->
+                val cached = if (request.watch == "any") emptyMap() else mapOf("tt1" to MovieRelease("home"))
+                DiscoverSearchPage(listOf(title("tt1"), title("tt2")), 2, null, movieReleases = cached)
+            })
+        runCurrent()
+        for (filter in listOf(DiscoverWatch.WATCHED, DiscoverWatch.UNWATCHED)) {
+            viewModel.onEvent(SearchEvent.SelectDiscoverWatch(filter))
+            viewModel.ensureDiscoverLoaded()
+            advanceUntilIdle()
+            val state = viewModel.uiState.value
+            assertEquals("home", state.movieRelease(state.discoverResults.first())?.status)
+            assertEquals(null, state.movieRelease(state.discoverResults.last()))
+            viewModel.requestDiscoverMovieReleases(state.discoverResults)
+            advanceUntilIdle()
+            assertTrue(calls.isEmpty())
+        }
+        viewModel.onEvent(SearchEvent.SelectDiscoverWatch(DiscoverWatch.ANY))
+        advanceUntilIdle()
+        assertEquals(listOf(listOf("tt1", "tt2")), calls)
+    }
+
+    @Test
+    fun `retry on a partial release result resumes the failed continuation`() = runTest {
+        val cursors = mutableListOf<String?>()
+        val viewModel = newViewModel(RecordingCatalogRepository(), discover = true, releaseProfile = 1, respond = { request ->
+            cursors += request.cursor
+            when (cursors.size) {
+                1 -> DiscoverSearchPage(listOf(title("tt1")), 2, "v:1", releasePending = true)
+                2 -> throw IOException("temporary")
+                else -> DiscoverSearchPage(listOf(title("tt2")), 2, null)
+            }
+        })
+        runCurrent()
+        viewModel.onEvent(SearchEvent.SelectDiscoverReleaseWindow(ReleaseWindow.HOME))
+        viewModel.ensureDiscoverLoaded()
+        runCurrent()
+        viewModel.onEvent(SearchEvent.LoadNextDiscoverResults)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.discoverError)
+        viewModel.onEvent(SearchEvent.RetryDiscover)
+        advanceUntilIdle()
+        assertEquals(listOf(null, "v:1", "v:1"), cursors)
+        assertEquals(listOf("tt1", "tt2"), viewModel.uiState.value.discoverResults.map { it.id })
+    }
+
     private fun title(name: String) = MetaPreview(id = name, type = ContentType.MOVIE, name = name, poster = null,
         posterShape = PosterShape.POSTER, background = null, logo = null, description = null, releaseInfo = null,
         imdbRating = null, genres = emptyList())
@@ -393,7 +548,9 @@ class SearchViewModelPaginationTest {
     private class RecordingCatalogRepository(
         private val pageDelayMs: Long = 0L,
         private val rawPageSize: Int = 100,
-        private val firstPageRelease: String? = null
+        private val firstPageRelease: String? = null,
+        private val itemsForPage: ((String, Int) -> List<MetaPreview>)? = null,
+        private val rowType: ContentType = ContentType.MOVIE
     ) : CatalogRepository {
         val requests = mutableListOf<Map<String, String>>()
         val queries = mutableListOf<String>()
@@ -435,8 +592,8 @@ class SearchViewModelPaginationTest {
             addonBaseUrl = "https://example.test",
             catalogId = catalogId,
             catalogName = catalogId,
-            type = ContentType.MOVIE,
-            items = listOf(
+            type = rowType,
+            items = itemsForPage?.invoke(query, skip) ?: listOf(
                 MetaPreview(
                     id = "${query}_$skip",
                     type = ContentType.MOVIE,
@@ -476,6 +633,8 @@ class SearchViewModelPaginationTest {
         profile: MutableStateFlow<Int> = MutableStateFlow(1),
         watchedMovieIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet()),
         watchedSeriesIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet()),
+        releaseProfile: Int? = null,
+        releases: suspend (Int, List<String>) -> MovieReleaseReply = { _, _ -> MovieReleaseReply(emptyMap(), false) },
         respond: suspend (DiscoverSearchRequest) -> DiscoverSearchPage = {
             DiscoverSearchPage(listOf(title(it.keyword)), 1, null)
         }
@@ -527,7 +686,11 @@ class SearchViewModelPaginationTest {
             catalogRepository = repository,
             metaRepository = mockk(relaxed = true),
             searchArtwork = mockk(),
-            discoverSearch = mockk { coEvery { search(any()) } coAnswers { respond(firstArg()) } },
+            discoverSearch = mockk {
+                every { movieReleaseProfile } returns flowOf(releaseProfile)
+                coEvery { movieReleases(any(), any()) } coAnswers { releases(firstArg(), secondArg()) }
+                coEvery { search(any()) } coAnswers { respond(firstArg()) }
+            },
             profileManager = mockk { every { activeProfileId } returns profile },
             castKeywordLookup = mockk { coEvery { search(any()) } returns CastKeywordResults() },
             layoutPreferenceDataStore = layoutPreferences,

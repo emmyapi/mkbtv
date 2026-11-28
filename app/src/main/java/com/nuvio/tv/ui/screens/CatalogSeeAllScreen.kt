@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -61,6 +62,7 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.screens.home.HomeEvent
 import com.nuvio.tv.ui.screens.home.HomeViewModel
 import com.nuvio.tv.ui.screens.search.SearchEvent
+import com.nuvio.tv.ui.screens.search.ReleaseWindow
 import com.nuvio.tv.ui.screens.search.SearchViewModel
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.legacyKey
@@ -143,8 +145,22 @@ fun CatalogSeeAllScreen(
         items.indexOfFirst { catalogItemFocusKey(it) == key }.takeIf { it >= 0 } ?: 0
     }
 
+    val releaseFiltered = (searchUiState?.value?.searchReleaseWindow ?: ReleaseWindow.ANY) != ReleaseWindow.ANY
+    val checkingReleases = searchUiState?.value?.searchReleasePending == true
+    val pageItems = catalogRow?.items
+    if (searchViewModel != null && searchUiState?.value?.movieReleasesEnabled == true && pageItems != null) {
+        LaunchedEffect(gridState, pageItems) {
+            snapshotFlow {
+                gridState.layoutInfo.visibleItemsInfo.mapNotNull { pageItems.getOrNull(it.index) }
+            }.collect(searchViewModel::requestMovieReleases)
+        }
+    }
+
     // Load more when scrolling near the bottom
-    LaunchedEffect(gridState, catalogKey, catalogRow?.items?.size, catalogRow?.nextSkip) {
+    LaunchedEffect(gridState, catalogKey, catalogRow?.items?.size, catalogRow?.nextSkip, releaseFiltered) {
+        // A page of unclassified movies can have zero visible matches.
+        // Let the viewer request the next page explicitly when a release filter is active.
+        if (releaseFiltered) return@LaunchedEffect
         snapshotFlow {
             val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val total = gridState.layoutInfo.totalItemsCount
@@ -270,6 +286,7 @@ fun CatalogSeeAllScreen(
                         }
                         val itemFocusKey = catalogItemFocusKey(item)
                         GridContentCard(
+                            movieRelease = searchUiState?.value?.movieRelease(item),
                             item = item,
                             posterCardStyle = posterCardStyle,
                             showLabel = uiState.posterLabelsEnabled,
@@ -301,6 +318,13 @@ fun CatalogSeeAllScreen(
                         )
                     }
 
+                    if (releaseFiltered && catalogRow.hasMore && !catalogRow.isLoading) {
+                        item(key = "more_release_matches") {
+                            Button(onClick = { searchViewModel?.onEvent(SearchEvent.LoadMoreCatalog(catalogRow.stableKey())) }) {
+                                Text(stringResource(R.string.discover_load_more))
+                            }
+                        }
+                    }
                     if (catalogRow.isLoading) {
                         item(key = "loading_more") {
                             val cardShape = remember(posterCardStyle.cornerRadius) {
@@ -359,6 +383,21 @@ fun CatalogSeeAllScreen(
                 contentAlignment = Alignment.Center
             ) {
                 LoadingIndicator()
+            }
+        } else if (releaseFiltered) {
+            Column(
+                modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxxl),
+                verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            ) {
+                Text(
+                    stringResource(if (checkingReleases) R.string.movie_release_checking else R.string.movie_release_no_matches),
+                    color = NuvioTheme.colors.TextPrimary
+                )
+                if (catalogRow?.hasMore == true) {
+                    Button(onClick = { searchViewModel?.onEvent(SearchEvent.LoadMoreCatalog(catalogRow.stableKey())) }) {
+                        Text(stringResource(R.string.discover_load_more))
+                    }
+                }
             }
         } else {
             EmptyScreenState(

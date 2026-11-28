@@ -15,6 +15,8 @@ sealed interface SearchEvent {
     data class SelectDiscoverGenre(val genre: String?) : SearchEvent
     data class SetDiscoverKeyword(val keyword: String) : SearchEvent
     data class ApplyDiscoverVoiceQuery(val phrase: String) : SearchEvent
+    data class SelectSearchReleaseWindow(val window: ReleaseWindow) : SearchEvent
+    data class SelectDiscoverReleaseWindow(val window: ReleaseWindow) : SearchEvent
     data class SelectDiscoverPeriod(val period: DiscoverPeriod) : SearchEvent
     data class SelectDiscoverMinRating(val rating: Int?) : SearchEvent
     data class SelectDiscoverWatch(val watch: DiscoverWatch) : SearchEvent

@@ -134,12 +134,11 @@ def discover_page(body, page):
     return {'ids': list(html.ids), 'next': html.next_page}
 
 
-def first_worldwide_release(body):
+def worldwide_release_rows(body, *, strict_dates=False):
     text = body.decode()
     tables = re.findall(r'<table\b[^>]*class="card releases"[^>]*>(.*?)</table>', text, re.S | re.I)
     if not tables:
         raise ProviderError('unrecognized release table')
-    earliest = None
     for table in tables:
         country = re.search(r'<h2\b[^>]*\bid="([A-Z]{2})"', table)
         for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', table, re.S | re.I):
@@ -151,10 +150,14 @@ def first_worldwide_release(body):
             try:
                 released = datetime.strptime(cells[0], '%m/%d/%Y').date().isoformat()
             except ValueError:
+                if strict_dates and cells[0]:
+                    raise ProviderError('unrecognized release date') from None
                 continue
-            if not earliest or released < earliest['date']:
-                earliest = {'date': released, 'type': cells[2], 'country': country[1] if country else ''}
-    return earliest
+            yield {'date': released, 'type': cells[2], 'country': country[1] if country else ''}
+
+
+def first_worldwide_release(body):
+    return min(worldwide_release_rows(body), key=lambda row: row['date'], default=None)
 
 
 def detail_tags(body):

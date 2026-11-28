@@ -58,6 +58,12 @@ For full US subscription-provider catalogs, supply your own `WATCHMODE_API_KEY` 
 
 Recommendation lookups send individual title IDs to metadata providers. Search matches use the local SQLite indexes. The TV can fetch a missing poster from a token-free `/poster/<IMDb-id>.jpg` route.
 
+## Movie releases in search
+
+With the Discovery addon connected, **Movie release** appears in Search and Discover. **Any** includes movies with unknown dates and keeps series in the results. **Cinema Release** includes films with a recorded theatrical opening and no recorded home release to date. **Available at Home** includes films with a digital or physical release in any country, including films that went straight to streaming. A poster can also show **Upcoming** or an announced home date. TMDB release records describe the movie's distribution. Actual file availability and quality can vary. [TMDB release types](https://developer.themoviedb.org/reference/movie-release-dates)
+
+The TV displays regular search results immediately and requests release information separately, in batches. Discovery keeps the worldwide dates in `movie-releases.sqlite3` in its state directory. A background worker looks up movies by ID, checking the exact title against TMDB's country release tables. It also prepares popular films in advance. The release filters include only confirmed matches, so a new search can gain results as the cache fills. In Discover, the match count and every results page use the same filter. With a watch-history filter active, posters use release dates already in the shared cache.
+
 ## Long-term For You
 
 Each profile gets one **For You** row of up to 60 films and whole series. Discovery combines the complete verified account export with recent completions reported by the TV. Once IMDb and TMDB identifiers have been matched, each distinct watched work contributes one vote, split across its genres. Finishing several episodes of the same series gives it one vote. A newly completed episode can still refresh the suggestions.

@@ -223,7 +223,7 @@ class SearchViewModelConcurrencyTest {
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
             searchArtwork = mockk(),
-            discoverSearch = mockk(),
+            discoverSearch = mockk { every { movieReleaseProfile } returns flowOf(null) },
             profileManager = mockk { every { activeProfileId } returns MutableStateFlow(1) },
             castKeywordLookup = lookup,
             serverCatalog = mockk { every { searchAddons } returns flowOf(emptyList()) },

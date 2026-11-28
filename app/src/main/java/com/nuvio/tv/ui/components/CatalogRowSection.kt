@@ -59,6 +59,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDirection
 import com.nuvio.tv.R
+import com.nuvio.tv.data.repository.MovieRelease
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
@@ -102,6 +103,7 @@ fun CatalogRowSection(
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     onItemFocus: (MetaPreview) -> Unit = {},
+    movieRelease: ((MetaPreview) -> MovieRelease?)? = null,
     isItemWatched: (MetaPreview) -> Boolean = { false },
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
@@ -445,6 +447,7 @@ fun CatalogRowSection(
                     trailerPreviewUrl = trailerPreviewUrls[item.id],
                     trailerPreviewAudioUrl = trailerPreviewAudioUrls[item.id],
                     onRequestTrailerPreview = latestOnRequestTrailerPreview,
+                    movieRelease = movieRelease?.invoke(item),
                     isWatched = latestIsItemWatched(item),
                     onFocus = onFocusStable,
                     onBackdropExpandedChanged = null,

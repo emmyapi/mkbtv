@@ -4,6 +4,7 @@ import json
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from threading import Thread
+from datetime import datetime, timezone
 
 import discovery
 from pathlib import Path
@@ -14,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 import discover_query as dq
+from movie_releases import MovieReleases
 
 
 class DiscoverQueries(unittest.TestCase):
@@ -60,8 +62,87 @@ class DiscoverQueries(unittest.TestCase):
         db.commit()
         db.close()
 
-    def call(self, profile=1, resolve=None, **params):
-        return dq.query_page(params, profile=profile, directory=self.data, resolve=resolve)
+    def call(self, profile=1, resolve=None, releases=None, **params):
+        return dq.query_page(params, profile=profile, directory=self.data, resolve=resolve, releases=releases)
+
+    def test_known_release_filter_precedes_counts_sort_and_paging(self):
+        releases = MovieReleases(self.data)
+        today = datetime.now(timezone.utc).date().isoformat()
+        with sqlite3.connect(releases.path) as db:
+            db.executemany("INSERT INTO movie_release VALUES(?,?,?,?)", [
+                ("1", "tt0000001", "1999-01-01", today),
+                ("2", "tt0000002", today, "2999-01-01"),
+                ("880", "tt0000003", None, "2020-01-01"),
+                ("77", None, None, "2020-01-01"),  # Shared numeric TMDB movie/TV namespace.
+                ("5", "tt0000005", "2999-01-02", None),
+                ("99", None, today, None),
+            ])
+        with sqlite3.connect(self.data / "feeds.sqlite3") as db:
+            db.execute("INSERT INTO member VALUES ('hulu','movie',NULL,3,'watchmode:99','Native',2024,99,'movie')")
+        params = dict(releases=releases, releaseWindow="home", limit=1)
+        first = self.call(**params)
+        self.assertEqual((2, 1, ["tt0000003"]), (first["total"], first["next_offset"], [m["id"] for m in first["metas"]]))
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release VALUES ('888', 'tt0000888', NULL, '2020-01-01')")
+        last = self.call(**params, offset=1, snapshot=first["snapshot"])
+        self.assertEqual((None, ["tt0000001"]), (last["next_offset"], [m["id"] for m in last["metas"]]))
+        self.assertEqual(["tmdb:99", "tt0000002"], [m["id"] for m in self.call(
+            releases=releases, releaseWindow="cinema", sort="title")["metas"]])
+        self.assertEqual(["tmdb:99"], [m["id"] for m in self.call(
+            releases=releases, releaseWindow="cinema", catalog="hulu")["metas"]])
+        self.assertEqual(0, self.call(**params, type="series")["total"])
+        self.assertEqual(1, self.call(**params, keyword="Spider", watch="unwatched",
+                                      watched_movies=["tt0000002"])["total"])
+        with sqlite3.connect(releases.path) as db:
+            db.execute("UPDATE movie_release SET home_date=NULL WHERE tmdb_id='1'")
+            db.execute("UPDATE movie_release SET home_date=? WHERE tmdb_id='2'", (today,))
+        with self.assertRaises(dq.QueryError) as changed:
+            self.call(**params, offset=1, snapshot=first["snapshot"])
+        self.assertEqual(409, changed.exception.status)
+
+    def test_filtered_cold_context_queues_only_public_movie_ids(self):
+        releases = MovieReleases(self.data)
+        with patch.object(releases, "lookup", return_value={"pending": True}) as lookup:
+            result = self.call(releases=releases, releaseWindow="home", keyword="Spider", watch="watched",
+                               watched_movies=["tt0000002", "tt0000999"])
+            self.assertEqual((0, True), (result["total"], result["releasePending"]))
+            lookup.assert_called_once_with(["tt0000002", "tt0000003"])
+            lookup.reset_mock()
+            self.assertEqual(6, self.call(releases=releases)["total"])
+            self.assertFalse(self.call(releases=releases, releaseWindow="home", type="series")["releasePending"])
+            lookup.assert_not_called()
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release_check VALUES ('tt0000002',?)", (int(time.time()) + 3600,))
+        with patch.object(releases, "lookup", return_value={"pending": False}) as lookup:
+            self.call(releases=releases, releaseWindow="home", keyword="Spider")
+            lookup.assert_called_once_with(["tt0000003"])
+        with sqlite3.connect(self.data / "catalog.sqlite3") as db:
+            db.executemany("INSERT INTO title(id,imdb_id,type,name,votes) VALUES(?,?,'movie','Test',?)",
+                           [(n, f"tt{n:07d}", n) for n in range(10, 110)])
+        with patch.object(releases, "lookup", side_effect=sqlite3.OperationalError("cache busy")) as lookup:
+            result = self.call(releases=releases, releaseWindow="home")
+            self.assertFalse(result["releasePending"])
+            self.assertEqual(24, len(lookup.call_args.args[0]))
+
+    def test_watch_filtered_page_labels_read_only_its_visible_movies_from_cache(self):
+        releases = MovieReleases(self.data)
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release VALUES ('2','tt0000002',NULL,'2020-01-01')")
+        request = dict(watch="watched", watched_movies=["tt0000002", "tt0000003"],
+                       watched_series=["tt0000004"], sort="title", limit=1)
+        with patch.object(releases, "lookup", wraps=releases.lookup) as lookup:
+            series_page = self.call(releases=releases, **request)
+            self.assertNotIn("movieReleases", series_page)
+            lookup.assert_not_called()
+            movie_page = self.call(releases=releases, offset=1, snapshot=series_page["snapshot"], **request)
+            lookup.assert_called_once_with(["tt0000002"], enqueue=False)
+            self.assertEqual({"tt0000002": {"status": "home", "homeDate": "2020-01-01"}},
+                             movie_page["movieReleases"])
+        with patch.object(releases, "lookup", side_effect=sqlite3.OperationalError("cache busy")) as lookup:
+            result = self.call(releases=releases, watch="unwatched", watched_movies=["tt0000002"])
+            self.assertEqual(5, result["total"])
+            self.assertNotIn("movieReleases", result)
+            self.assertFalse(lookup.call_args.kwargs["enqueue"])
 
     def test_global_order_before_paging_and_stable_end(self):
         all_items = self.call(sort="top_rated")
@@ -218,17 +299,20 @@ class DiscoverQueries(unittest.TestCase):
 
     def test_http_authentication_validation_and_paging(self):
         (self.data / "config.json").write_text(json.dumps({"tokens": {"1": "unitA", "2": "unitB"}}))
-        server = ThreadingHTTPServer(("127.0.0.1", 0), discovery.handler_for(self.data, self.data))
+        releases = MovieReleases(self.data)
+        with sqlite3.connect(releases.path) as db:
+            db.execute("INSERT INTO movie_release VALUES ('42', 'tt0000042','1998-01-01','1998-08-01')")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), discovery.handler_for(self.data, self.data, releases=releases))
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
         self.addCleanup(thread.join)
         self.addCleanup(server.shutdown)
 
-        def post(token, query, mime="application/json"):
+        def post(token, query, mime="application/json", resource="discover.json"):
             http = HTTPConnection(*server.server_address, timeout=5)
             try:
-                http.request("POST", f"/{token}/discover.json", json.dumps(query), {"Content-Type": mime})
+                http.request("POST", f"/{token}/{resource}", json.dumps(query), {"Content-Type": mime})
                 response = http.getresponse()
                 self.assertEqual("close", response.getheader("Connection"))
                 return response.status, json.loads(response.read())
@@ -236,6 +320,20 @@ class DiscoverQueries(unittest.TestCase):
                 http.close()
 
         with patch.object(dq, "DATA", self.data):
+            release_url = {"resource": "movie-releases.json"}
+            self.assertEqual(404, post("missing", {"ids": []}, **release_url)[0])
+            for bad in ({"ids": ["imdb:42"]}, {"ids": ["tt1"] * 101}, {"ids": [42]}, {"profile": 2, "ids": []}):
+                self.assertEqual(400, post("unitA", bad, **release_url)[0])
+            status, body = post("unitA", {"ids": ["tt0000042", "tmdb:42", "tt0000001"]}, **release_url)
+            self.assertEqual(200, status)
+            self.assertEqual({"status": "home", "homeDate": "1998-08-01", "cinemaDate": "1998-01-01"},
+                             body["releases"]["tt0000042"])
+            self.assertEqual(body["releases"]["tt0000042"], body["releases"]["tmdb:42"])
+            self.assertEqual({"status": "unknown"}, body["releases"]["tt0000001"])
+            self.assertFalse(body["pending"])
+            self.assertEqual((200, {"releases": {}, "pending": False}), post("unitB", {"ids": []}, **release_url))
+            status, filtered = post("unitA", {"releaseWindow": "home"})
+            self.assertEqual((200, 0, False), (status, filtered["total"], filtered["releasePending"]))
             self.assertEqual(404, post("missing", {})[0])
             self.assertEqual(400, post("unitA", {}, "text/plain")[0])
             self.assertEqual(400, post("unitA", {"region": "DK"})[0])
@@ -292,6 +390,7 @@ class DiscoverQueries(unittest.TestCase):
             {"limit": None},
             {"type": "any", "year_min": 2020, "year_max": 2000},
             {"sort": "x"},
+            {"releaseWindow": "upcoming"},
             {"watch": "watched", "watched_movies": [{}]},
             {"offset": 1},
             {"min_rating": True},

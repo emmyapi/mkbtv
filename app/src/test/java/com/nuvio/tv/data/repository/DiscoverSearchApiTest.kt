@@ -34,6 +34,20 @@ class DiscoverSearchApiTest {
             "snapshot" to "snapshot.1"), moshi.adapter(Any::class.java).fromJson(
                 moshi.adapter(Any::class.java).toJson(json)))
         assertTrue(request.copy(watch = "any").wire(2026).watchedSeries.isEmpty())
+        val filtered = request.copy(type = "any", releaseWindow = "home").wire(2026)
+        assertEquals("home", moshi.adapter(DiscoverRequestBody::class.java).toJsonValue(filtered).let { (it as Map<*, *>)["releaseWindow"] })
+        val partial = moshi.adapter(DiscoverReply::class.java).fromJson(
+            """{"metas":[],"total":0,"snapshot":"v1","releasePending":true}"""
+        )!!
+        assertTrue(partial.page(filtered).releasePending)
+        val cached = moshi.adapter(DiscoverReply::class.java).fromJson(
+            """{"metas":[{"type":"movie","name":"A","id":"tt1"}],"total":1,"snapshot":"v1",
+                "movieReleases":{"tt1":{"status":"home","homeDate":"2026-10-15"},"tt7":{"status":"cinema"}}}"""
+        )!!
+        assertEquals(mapOf("tt1" to MovieRelease("home", homeDate = "2026-10-15")), cached.page(filtered).movieReleases)
+        assertTrue(cached.page(filtered.copy(watch = "any")).movieReleases.isEmpty())
+        val series = MetaPreviewDto(id = "tt1", name = "Series", type = "series")
+        assertTrue(runCatching { partial.copy(metas = listOf(series), total = 1).page(filtered) }.exceptionOrNull() is IOException)
         for ((period, bounds) in mapOf("any" to (null to null), "before_2010" to (null to 2009),
             "this_year" to (2026 to 2026), "decade_1980" to (1980 to 1989))) {
             val body = request.copy(period = period).wire(2026)

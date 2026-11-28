@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.search
 import androidx.compose.runtime.Immutable
 import com.nuvio.tv.data.repository.DiscoverSource
 import com.nuvio.tv.data.repository.DiscoverFailure
+import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseId
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.DiscoverLocation
@@ -22,6 +24,8 @@ internal fun shouldShowDiscoverInSearch(
         query.trim().length < MIN_SEARCH_QUERY_LENGTH &&
         submittedQuery.isBlank()
 
+enum class ReleaseWindow { ANY, HOME, CINEMA }
+
 @Immutable
 data class SearchUiState(
     val query: String = "",
@@ -29,6 +33,12 @@ data class SearchUiState(
     val isSearching: Boolean = false,
     val error: String? = null,
     val catalogRows: List<CatalogRow> = emptyList(),
+    val movieReleasesEnabled: Boolean = false,
+    val movieReleases: Map<String, MovieRelease> = emptyMap(),
+    val searchReleaseWindow: ReleaseWindow = ReleaseWindow.ANY,
+    val searchReleasePending: Boolean = false,
+    val discoverReleaseWindow: ReleaseWindow = ReleaseWindow.ANY,
+    val discoverReleasePending: Boolean = false,
     val installedAddons: List<Addon> = emptyList(),
     val discoverLocation: DiscoverLocation = DiscoverLocation.IN_SEARCH,
     val discoverInitialized: Boolean = false,
@@ -57,5 +67,7 @@ data class SearchUiState(
     val recentSearches: List<String> = emptyList(),
     val suggestions: List<String> = emptyList()
 ) {
+    fun movieRelease(item: MetaPreview): MovieRelease? = movieReleases[item.movieReleaseId]
+
     val discoverError: Boolean get() = discoverFailure != null
 }

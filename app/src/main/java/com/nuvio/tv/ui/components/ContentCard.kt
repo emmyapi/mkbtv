@@ -63,6 +63,7 @@ import com.nuvio.tv.ui.util.contentTextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
+import com.nuvio.tv.data.repository.MovieRelease
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -106,6 +107,7 @@ fun ContentCard(
     trailerPreviewUrl: String? = null,
     trailerPreviewAudioUrl: String? = null,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
+    movieRelease: MovieRelease? = null,
     isWatched: Boolean = false,
     onFocus: (MetaPreview) -> Unit = {},
     onBackdropExpandedChanged: ((Boolean) -> Unit)? = null,
@@ -614,6 +616,13 @@ fun ContentCard(
                     )
                 }
 
+                if (movieRelease != null) {
+                    MovieReleaseBadge(
+                        release = movieRelease,
+                        modifier = Modifier.align(Alignment.TopStart).zIndex(2f)
+                            .padding(start = 4.dp, top = 4.dp, end = if (isWatched) 30.dp else 4.dp)
+                    )
+                }
                 if (isWatched || item.seasonalRewatchAt != null) {
                     WatchedMarker(
                         rewatch = item.seasonalRewatchAt != null,

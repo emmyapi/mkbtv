@@ -456,7 +456,7 @@ class SearchViewModelSuggestionsTest {
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
             searchArtwork = mockk(),
-            discoverSearch = mockk(),
+            discoverSearch = mockk { every { movieReleaseProfile } returns flowOf(null) },
             profileManager = mockk { every { activeProfileId } returns MutableStateFlow(1) },
             castKeywordLookup = mockk { coEvery { search(any()) } returns CastKeywordResults() },
             serverCatalog = mockk { every { searchAddons } returns flowOf(emptyList()) },

@@ -171,7 +171,8 @@ internal object DiscoverVoiceQuery {
         if (reset.matches(phrase)) return current.copy(
             selectedDiscoverType = DISCOVER_TYPE_ANY, selectedDiscoverCatalogKey = DiscoverCatalogOption.ALL.key,
             selectedDiscoverGenre = null, discoverKeyword = "", discoverPeriod = DiscoverPeriod.ANY,
-            discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING
+            discoverMinRating = null, discoverWatch = DiscoverWatch.ANY, discoverSort = DiscoverSort.TRENDING,
+            discoverReleaseWindow = ReleaseWindow.ANY
         )
         if (clearKeyword.matches(phrase)) return current.copy(discoverKeyword = "")
 
@@ -202,6 +203,7 @@ internal object DiscoverVoiceQuery {
             newSearch -> ""
             else -> current.discoverKeyword
         }
-        return criteria.copy(discoverKeyword = keyword, selectedDiscoverCatalogKey = (catalog ?: DiscoverCatalogOption.ALL).key)
+        return criteria.copy(discoverKeyword = keyword, selectedDiscoverCatalogKey = (catalog ?: DiscoverCatalogOption.ALL).key,
+            discoverReleaseWindow = if (criteria.selectedDiscoverType == "series") ReleaseWindow.ANY else criteria.discoverReleaseWindow)
     }
 }

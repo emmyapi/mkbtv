@@ -2,7 +2,7 @@
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 import json
 import os
@@ -79,6 +79,7 @@ GENRES.update(
 EXTRA_GENRES = {"war & politics", "kids", "soap"}
 CONTENT_ID = re.compile(r"(?:tt[0-9]{1,12}|(?:tmdb|watchmode):[0-9]{1,12})\Z")
 WORKERS = BoundedSemaphore(3)
+RELEASE_CANDIDATES = 24
 
 
 class QueryError(Exception):
@@ -122,6 +123,7 @@ class Search:
     hide_after: int | None
     sort: str
     watch: str
+    release_window: str
     watched: tuple
     offset: int
     limit: int
@@ -134,6 +136,7 @@ def options(request):
         "catalog",
         "sort",
         "watch",
+        "releaseWindow",
         "genre",
         "keyword",
         "year_min",
@@ -196,6 +199,7 @@ def options(request):
         date.today().year if hide else None,
         sort,
         watch,
+        text_field(request, "releaseWindow", "any", {"any", "home", "cinema"}),
         tuple(sorted(seen)),
         offset,
         limit,
@@ -329,7 +333,7 @@ def watched_ids(opt, resolve):
     return sorted(seen)
 
 
-def predicates(opt, pool, content_id):
+def predicates(opt, pool, content_id, *, include_watch=True):
     terms, args = [], []
     if opt.kind != "any":
         terms.append("t.type=?")
@@ -368,7 +372,7 @@ def predicates(opt, pool, content_id):
             )
             args.append("genre:" + opt.genre)
         terms.append("(" + " OR ".join(pieces) + ")")
-    if opt.watch != "any":
+    if include_watch and opt.watch != "any":
         exists = "EXISTS" if opt.watch == "watched" else "NOT EXISTS"
         terms.append(exists + " (SELECT 1 FROM watched w WHERE w.type=t.type AND w.uid=" + content_id + ")")
     return terms, args
@@ -378,7 +382,75 @@ def filtered(terms):
     return " WHERE " + " AND ".join(terms) if terms else ""
 
 
-def query_page(request, *, profile, directory=DATA, resolve=None):
+def filter_releases(db, opt, clauses, path, today):
+    """Materialize eligible catalog IDs once for counting, ranking and stable paging."""
+    db.execute("ATTACH ? AS releases", (uri(path),))
+    db.execute("CREATE TEMP TABLE release_matches(id INTEGER PRIMARY KEY)")
+    if opt.kind != "series":
+        window = ("home_date<=?" if opt.release_window == "home" else
+                  "theatrical_date<=? AND (home_date IS NULL OR home_date>?)")
+        dates = [today] if opt.release_window == "home" else [today, today]
+        for pool, content_id, terms, args in clauses:
+            if pool == "title":
+                # The full IMDb index has a numeric primary key and a generated IMDb string.
+                key = "t.id"
+                identities = "SELECT cast(substr(imdb_id,3) AS INTEGER) FROM eligible WHERE imdb_id IS NOT NULL"
+            else:
+                key = content_id
+                identities = "SELECT imdb_id FROM eligible UNION ALL SELECT 'tmdb:'||tmdb_id FROM eligible"
+            db.execute(
+                "WITH eligible AS (SELECT imdb_id,tmdb_id FROM releases.movie_release WHERE "
+                + window + ") INSERT INTO release_matches SELECT t.id FROM "
+                + pool + " t" + filtered(terms + ["t.type='movie'", key + " IN (" + identities + ")"]),
+                dates + args,
+            )
+    # An update to a different movie must not invalidate the next page. Pool
+    # identities are stable for the catalog/feeds generations in the snapshot.
+    membership = db.execute(
+        "SELECT group_concat(id) FROM (SELECT id FROM release_matches ORDER BY id)"
+    ).fetchone()[0] or ""
+    return membership
+
+
+def release_candidates(db, opt, pools, today):
+    """Select a small public sample. Private watch sets never reach the worker."""
+    if opt.offset or opt.kind == "series":
+        return []
+    ids = []
+    # An unindexed combination of rare filters must not delay the result grid
+    # just to warm facts. The actual result query has no such time limit.
+    # Indexed title/actor matches take priority on a keyword search. Share the
+    # time budget so an expensive native feed scan can't starve the IMDb pool.
+    for pool, uid in (pools if opt.keyword else reversed(pools)):
+        deadline = time.monotonic() + 0.04 / len(pools)
+        db.set_progress_handler(lambda: time.monotonic() >= deadline, 1000)
+        try:
+            terms, args = predicates(opt, pool, uid, include_watch=False)
+            terms.extend(["t.type='movie'", "NOT EXISTS (SELECT 1 FROM releases.movie_release_check c "
+                          "WHERE c.content_id=" + uid + " AND c.next_check>?)"])
+            args.append(int(time.time()))
+            if pool != "title":
+                terms.append("(" + uid + " GLOB 'tt[0-9]*' OR " + uid + " GLOB 'tmdb:[0-9]*')")
+            elif opt.release_window == "cinema" and not (opt.keyword or opt.first_year or opt.last_year):
+                # Let SQLite stop after the first recent titles in vote order.
+                # A year-index range scan would sort every film in those years.
+                terms.append("+t.year BETWEEN ? AND ?")
+                args.extend([today.year - 2, today.year + 1])
+            order = "t.votes DESC,t.id" if pool == "title" else "t.pos,t.id"
+            cursor = db.execute("SELECT " + uid + " FROM " + pool + " t" + filtered(terms)
+                                + " ORDER BY " + order + " LIMIT ?", [*args, RELEASE_CANDIDATES - len(ids)])
+            ids.extend(row[0] for row in cursor)
+        except sqlite3.OperationalError as error:
+            if error.sqlite_errorcode != sqlite3.SQLITE_INTERRUPT:
+                raise
+        finally:
+            db.set_progress_handler(None, 0)
+        if len(ids) == RELEASE_CANDIDATES:
+            break
+    return ids
+
+
+def query_page(request, *, profile, directory=DATA, resolve=None, releases=None):
     opt = options(request)
     if not WORKERS.acquire(timeout=1):
         raise QueryError(503, "busy")
@@ -412,7 +484,7 @@ def query_page(request, *, profile, directory=DATA, resolve=None):
             snapshot = hashlib.sha256(
                 json.dumps(criteria, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest()
-            if opt.expected is not None and snapshot != opt.expected:
+            if opt.release_window == "any" and opt.expected is not None and snapshot != opt.expected:
                 raise QueryError(409, "snapshot_changed")
             if opt.keyword:
                 keyword_ids(db, opt.keyword)
@@ -431,6 +503,18 @@ def query_page(request, *, profile, directory=DATA, resolve=None):
             for pool, content_id in pools:
                 terms, args = predicates(opt, pool, content_id)
                 clauses.append((pool, content_id, terms, args))
+
+            candidates = []
+            if opt.release_window != "any":
+                if releases is None:
+                    raise QueryError(503, "release_unavailable")
+                today = datetime.now(timezone.utc).date()
+                members = filter_releases(db, opt, clauses, releases.path, today.isoformat())
+                snapshot = hashlib.sha256((snapshot + opt.release_window + members).encode()).hexdigest()
+                if opt.expected is not None and snapshot != opt.expected:
+                    raise QueryError(409, "snapshot_changed")
+                clauses = [(p, uid, ["t.id IN release_matches"], []) for p, uid in pools]
+                candidates = release_candidates(db, opt, pools, today)
 
             def count(extra=()):
                 return sum(
@@ -560,7 +644,23 @@ def query_page(request, *, profile, directory=DATA, resolve=None):
                     notes.append("The source returned empty pages within this chart.")
             if notes:
                 result["coverage"] = " ".join(notes)
-            return result
+        if opt.release_window != "any":
+            result["releasePending"] = False
+            if candidates:
+                try:
+                    result["releasePending"] = releases.lookup(candidates)["pending"]
+                except (OSError, sqlite3.Error):
+                    pass  # A busy preparation queue cannot invalidate the completed page.
+        if opt.watch != "any" and releases is not None:
+            # The client doesn't send a separate enrichment request for pages
+            # based on private watched history. Only read already known facts.
+            movie_ids = [meta["id"] for meta in metas if meta["type"] == "movie"]
+            if movie_ids:
+                try:
+                    result["movieReleases"] = releases.lookup(movie_ids, enqueue=False)["releases"]
+                except (OSError, sqlite3.Error):
+                    pass
+        return result
     except (sqlite3.Error, OSError) as error:
         raise QueryError(503, "index_unavailable") from error
     finally:

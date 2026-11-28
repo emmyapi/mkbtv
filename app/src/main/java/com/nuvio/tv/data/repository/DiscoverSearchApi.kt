@@ -4,6 +4,7 @@ import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.mapper.toDomainOrNull
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.squareup.moshi.Json
@@ -15,6 +16,9 @@ import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -33,7 +37,8 @@ import retrofit2.http.Url
 data class DiscoverSearchRequest(
     val profileId: Int, val type: String, val catalog: String, val genre: String?, val keyword: String,
     val period: String, val minRating: Int?, val watch: String, val sort: String, val hideUnreleased: Boolean,
-    val watchedMovies: List<String>, val watchedSeries: List<String>, val cursor: String? = null
+    val watchedMovies: List<String>, val watchedSeries: List<String>, val cursor: String? = null,
+    val releaseWindow: String = "any"
 )
 
 enum class DiscoverSource(val label: String, val url: String) {
@@ -41,7 +46,8 @@ enum class DiscoverSource(val label: String, val url: String) {
 }
 
 data class DiscoverSearchPage(
-    val items: List<MetaPreview>, val total: Int, val nextCursor: String?, val sources: List<DiscoverSource> = emptyList()
+    val items: List<MetaPreview>, val total: Int, val nextCursor: String?, val sources: List<DiscoverSource> = emptyList(),
+    val releasePending: Boolean = false, val movieReleases: Map<String, MovieRelease> = emptyMap()
 )
 
 enum class DiscoverFailure { CATALOG, RANKING, INDEX, WATCH, BUSY, OTHER }
@@ -78,16 +84,34 @@ internal data class DiscoverRequestBody(
     @Json(name = "hide_unreleased") val hideUnreleased: Boolean,
     @Json(name = "watched_movies") val watchedMovies: List<String>,
     @Json(name = "watched_series") val watchedSeries: List<String>,
-    val offset: Int, val snapshot: String?, val limit: Int = 60
+    val offset: Int, val snapshot: String?, val limit: Int = 60, val releaseWindow: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 internal data class DiscoverReply(
     val metas: List<MetaPreviewDto>, val total: Int, val snapshot: String,
-    @Json(name = "next_offset") val nextOffset: Int?, val coverage: String? = null
+    @Json(name = "next_offset") val nextOffset: Int?, val coverage: String? = null,
+    val releasePending: Boolean = false, val movieReleases: Map<String, MovieRelease> = emptyMap()
 )
 
+internal const val MOVIE_RELEASE_BATCH_LIMIT = 100
+private val movieReleaseIdPattern = Regex("(?:tt[0-9]{1,12}|tmdb:[1-9][0-9]{0,11})")
+internal val MetaPreview.movieReleaseId: String?
+    get() = if (type == ContentType.MOVIE) {
+        if (movieReleaseIdPattern.matches(id)) id else imdbId?.takeIf(movieReleaseIdPattern::matches)
+    } else null
+
+@JsonClass(generateAdapter = true)
+data class MovieRelease(val status: String, val homeDate: String? = null, val cinemaDate: String? = null)
+
+@JsonClass(generateAdapter = true)
+internal data class MovieReleaseRequest(val ids: List<String>)
+
+@JsonClass(generateAdapter = true)
+internal data class MovieReleaseReply(val releases: Map<String, MovieRelease>, val pending: Boolean)
+
 private interface PrivateDiscoverEndpoint {
+    @POST suspend fun releases(@Url url: HttpUrl, @Body request: MovieReleaseRequest): Response<MovieReleaseReply>
     @POST suspend fun page(@Url url: HttpUrl, @Body request: DiscoverRequestBody): Response<DiscoverReply>
 }
 
@@ -112,7 +136,7 @@ internal fun DiscoverSearchRequest.wire(year: Int): DiscoverRequestBody {
         ?: throw IOException("Invalid Discover continuation")
     return DiscoverRequestBody(type, catalog, genre, keyword, span.first, span.second, minRating, watch, sort,
         hideUnreleased, if (watch == "any") emptyList() else watchedMovies,
-        if (watch == "any") emptyList() else watchedSeries, offset, snapshot)
+        if (watch == "any") emptyList() else watchedSeries, offset, snapshot, releaseWindow = releaseWindow.takeUnless { it == "any" })
 }
 
 internal fun DiscoverReply.page(request: DiscoverRequestBody): DiscoverSearchPage {
@@ -126,11 +150,16 @@ internal fun DiscoverReply.page(request: DiscoverRequestBody): DiscoverSearchPag
         it.toDomainOrNull(it.type) ?: throw IOException("Invalid Discover title")
     }
     if (items.distinctBy { it.apiType to it.id }.size != items.size ||
-        (request.type != "any" && items.any { it.apiType != request.type })) {
+        (request.type != "any" && items.any { it.apiType != request.type }) ||
+        (request.releaseWindow != null && items.any { it.type != ContentType.MOVIE })) {
         throw IOException("Invalid Discover title page")
     }
     val sources = DiscoverSource.entries.filter { source -> coverage?.contains(source.label, ignoreCase = true) == true }
-    return DiscoverSearchPage(items, total, nextOffset?.let { "$snapshot:$it" }, sources)
+    val localReleases = if (request.watch == "any" || movieReleases.isEmpty()) emptyMap() else {
+        val pageIds = items.mapNotNullTo(hashSetOf()) { it.movieReleaseId }
+        movieReleases.filterKeys { it in pageIds }
+    }
+    return DiscoverSearchPage(items, total, nextOffset?.let { "$snapshot:$it" }, sources, releasePending, localReleases)
 }
 
 internal fun discoverSearchUrl(
@@ -151,17 +180,22 @@ class DiscoverSearchApi @Inject constructor(
             .callTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build())
         .addConverterFactory(MoshiConverterFactory.create(moshi)).build().create(PrivateDiscoverEndpoint::class.java)
 
-    suspend fun search(request: DiscoverSearchRequest): DiscoverSearchPage {
-        val profile = request.profileId
-        fun verifyProfile() {
-            if (profiles.activeProfileId.value != profile || !profiles.activeProfileReady.value)
-                throw IOException("Discover profile changed")
-        }
+    internal val movieReleaseProfile: Flow<Int?>
+        get() = combine(profiles.activeProfileId, profiles.activeProfileReady, addons.getInstalledAddons()) { profile, ready, installed ->
+            profile.takeIf { ready && installed.any { it.enabled && discoverSearchUrl(profile, it.id, it.baseUrl) != null } }
+        }.distinctUntilChanged()
+
+    private fun verifyProfile(profile: Int) {
+        if (profiles.activeProfileId.value != profile || !profiles.activeProfileReady.value)
+            throw IOException("Discover profile changed")
+    }
+
+    private suspend fun privateDiscoverUrl(profile: Int): HttpUrl {
         // The profile store loads asynchronously at startup. Its initial profile ID
         // is a placeholder until readiness is confirmed.
         if (withTimeoutOrNull(5_000) { profiles.activeProfileReady.first { it } } != true)
             throw IOException("Discover profile unavailable")
-        verifyProfile()
+        verifyProfile(profile)
         val url = withTimeoutOrNull(5_000) {
             addons.getInstalledAddons().map { installed ->
                 installed.firstNotNullOfOrNull { addon ->
@@ -169,7 +203,25 @@ class DiscoverSearchApi @Inject constructor(
                 }
             }.filterNotNull().firstOrNull()
         } ?: throw IOException("Private Discover service is unavailable")
-        verifyProfile()
+        verifyProfile(profile)
+        return url
+    }
+
+    internal suspend fun movieReleases(profile: Int, ids: List<String>): MovieReleaseReply {
+        require(ids.size in 1..MOVIE_RELEASE_BATCH_LIMIT && ids.all(movieReleaseIdPattern::matches))
+        val url = privateDiscoverUrl(profile).newBuilder().setPathSegment(1, "movie-releases.json").build()
+        val response = endpoint.releases(url, MovieReleaseRequest(ids))
+        if (!response.isSuccessful) {
+            response.errorBody()?.close()
+            throw IOException("Movie releases unavailable")
+        }
+        verifyProfile(profile)
+        return response.body() ?: throw IOException("Empty movie release response")
+    }
+
+    suspend fun search(request: DiscoverSearchRequest): DiscoverSearchPage {
+        val profile = request.profileId
+        val url = privateDiscoverUrl(profile)
         val wire = request.wire(LocalDate.now().year)
         val response = endpoint.page(url, wire)
         if (!response.isSuccessful) {
@@ -177,11 +229,11 @@ class DiscoverSearchApi @Inject constructor(
                 response.errorBody()?.close()
                 DiscoverFailure.OTHER
             }
-            verifyProfile()
+            verifyProfile(profile)
             if (response.code() == 409) throw DiscoverSnapshotExpiredException()
             throw DiscoverServiceException(failure)
         }
-        verifyProfile()
+        verifyProfile(profile)
         return response.body()?.page(wire) ?: throw IOException("Empty Discover response")
     }
 }

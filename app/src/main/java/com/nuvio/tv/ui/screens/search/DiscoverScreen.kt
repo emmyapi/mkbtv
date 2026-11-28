@@ -111,6 +111,7 @@ fun DiscoverScreen(
         } else {
             DiscoverSection(
                 uiState = uiState,
+                requestMovieReleases = viewModel::requestDiscoverMovieReleases,
                 voiceRequest = voiceRequest,
                 onVoiceRequestHandled = onVoiceRequestHandled,
                 posterCardStyle = posterCardStyle,

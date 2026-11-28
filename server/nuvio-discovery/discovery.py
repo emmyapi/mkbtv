@@ -791,7 +791,7 @@ def valid_session(value):
                 isinstance(uid, str) and len(uid) <= 20 and ID.fullmatch(uid) for uid in progress))
 
 
-def discover_response(root, profile, request):
+def discover_response(root, profile, request, releases=None):
     from discover_query import DATA, QueryError, query_page, uri
     from contextlib import closing
     # A watch filter may read existing public ID mappings, but must never
@@ -855,12 +855,28 @@ def discover_response(root, profile, request):
             return result
         return None
     try:
-        return 200, query_page(request, profile=profile, directory=DATA, resolve=canonical)
+        return 200, query_page(request, profile=profile, directory=DATA, resolve=canonical, releases=releases)
     except QueryError as error:
         return error.status, {'error': error.code}
 
 
-def handler_for(root, history, public_origin=None):
+def movie_release_response(request, releases):
+    from movie_releases import MOVIE_ID
+    if not isinstance(request, dict) or request.keys() != {'ids'}:
+        return 400, {'error': 'invalid_query'}
+    ids = request['ids']
+    if (not isinstance(ids, list) or len(ids) > 100
+            or any(not isinstance(uid, str) or not MOVIE_ID.fullmatch(uid) for uid in ids)):
+        return 400, {'error': 'invalid_query'}
+    if releases is not None:
+        try:
+            return 200, releases.lookup(ids)
+        except (OSError, sqlite3.Error):
+            pass
+    return 503, {'error': 'release_unavailable'}
+
+
+def handler_for(root, history, public_origin=None, releases=None):
     art = PosterArt()
 
     class Handler(BaseHTTPRequestHandler):
@@ -899,19 +915,22 @@ def handler_for(root, history, public_origin=None):
                 profile = token_profile(current, parts[0])
             except (OSError, ValueError, KeyError):
                 return self.reply(503, {'error': 'catalog_unavailable'})
-            if len(parts) != 2 or parts[1] not in ('discover.json','session.json') or profile is None:
+            limits = {'discover.json': 4 * 1024**2, 'session.json': 128 * 1024, 'movie-releases.json': 8 * 1024}
+            if len(parts) != 2 or parts[1] not in limits or profile is None:
                 return self.reply(404, {'error': 'not_found'})
-            discover = parts[1] == 'discover.json'
-            invalid = {'error': 'invalid_query' if discover else 'invalid_session'}
+            resource = parts[1]
+            invalid = {'error': 'invalid_session' if resource == 'session.json' else 'invalid_query'}
             try:
                 size = int(self.headers.get('Content-Length', 0))
-                if not 0 < size <= (4 * 1024**2 if discover else 128 * 1024) or self.headers.get_content_type() != 'application/json':
+                if not 0 < size <= limits[resource] or self.headers.get_content_type() != 'application/json':
                     return self.reply(400, invalid)
                 session = json.loads(self.rfile.read(size))
             except (ValueError, UnicodeError, RecursionError):
                 return self.reply(400, invalid)
-            if discover:
-                status, body = discover_response(root, int(profile), session)
+            if resource == 'movie-releases.json':
+                return self.reply(*movie_release_response(session, releases))
+            if resource == 'discover.json':
+                status, body = discover_response(root, int(profile), session, releases)
                 self.add_posters(body)
                 return self.reply(status, body)
             if not valid_session(session):
@@ -962,17 +981,28 @@ def serve(root, history=HISTORY):
             raise DiscoveryError('PUBLIC_ORIGIN_INVALID')
     elif config['listen'] in ('', '0.0.0.0'):
         raise DiscoveryError('PUBLIC_ORIGIN_REQUIRED_FOR_WILDCARD')
-    server = ThreadingHTTPServer((config['listen'], config['port']), handler_for(root, history, origin))
+    from discover_query import DATA
+    from movie_releases import MovieReleases
+    try:
+        releases = MovieReleases(root, catalog_dir=DATA)
+    except (OSError, sqlite3.Error) as error:
+        print(f'Movie release cache unavailable ({type(error).__name__})', file=sys.stderr)
+        releases = None
+    server = ThreadingHTTPServer((config['listen'], config['port']), handler_for(root, history, origin, releases))
     from seasonal_jobs import worker
     stop = threading.Event()
     from for_you import worker as taste_worker
     for name, run in [('seasonal-catalog', worker), ('for-you', taste_worker)]:
         threading.Thread(target=run, args=(root, stop), name=name, daemon=True).start()
     try:
+        if releases is not None:
+            releases.start()
         server.serve_forever(poll_interval=1)
     finally:
         stop.set()
         server.server_close()
+        if releases is not None:
+            releases.stop()
 
 
 def main():

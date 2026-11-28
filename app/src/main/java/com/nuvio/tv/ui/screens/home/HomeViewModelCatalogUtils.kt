@@ -5,6 +5,7 @@ import com.nuvio.tv.domain.model.catalogRowLegacyKey
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.catalogsForHomeSettings
 import com.nuvio.tv.domain.model.seasonalHomeOrder
+import com.nuvio.tv.domain.model.isSeasonalHomeKey
 import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -243,7 +244,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
         // Collections are positioned based on their relative position in saved order.
         val savedValid = homeCatalogOrderKeys
             .asSequence()
-            .filter { it in allAvailable }
+            .filter { it in allAvailable && !isSeasonalHomeKey(it) }
             .distinct()
             .toList()
 
@@ -297,7 +298,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
             // No saved order - manifest order + collections at end
             synchronized(catalogStateLock) {
                 catalogOrder.clear()
-                catalogOrder.addAll(defaultOrder + collectionKeys)
+                catalogOrder.addAll(seasonalHomeOrder(defaultOrder + collectionKeys))
             }
         }
     } else {
@@ -315,7 +316,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
 
         synchronized(catalogStateLock) {
             catalogOrder.clear()
-            catalogOrder.addAll(seasonalHomeOrder(mergedOrder, savedValid))
+            catalogOrder.addAll(seasonalHomeOrder(mergedOrder, homeCatalogOrderKeys))
         }
     }
 }

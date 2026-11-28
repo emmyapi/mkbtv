@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.server
 
+import com.nuvio.tv.domain.model.isSeasonalHomeKey
 import java.util.UUID
 
 enum class AddonWebConfigMode(
@@ -37,7 +38,9 @@ data class CatalogInfo(
     val addonName: String,
     val type: String,
     val isDisabled: Boolean
-)
+) {
+    val isSeasonal = isSeasonalHomeKey(key)
+}
 
 data class CollectionInfo(
     val id: String,

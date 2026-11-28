@@ -41,6 +41,7 @@ import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.catalogsForHomeSettings
 import com.nuvio.tv.domain.model.seasonalHomeOrder
+import com.nuvio.tv.domain.model.isSeasonalHomeKey
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.ExperienceMode
@@ -286,10 +287,10 @@ class AddonManagerViewModel @Inject constructor(
                 val unifiedCatalogs: List<CatalogInfo>
                 if (followAddonsOrderEnabled) {
                     // In follow mode: addon catalogs in manifest order, collections placed by saved position
-                    val addonKeys = catalogInfos.map { it.key }
+                    val addonKeys = seasonalHomeOrder(catalogInfos.map { it.key })
                     val collectionKeysSet = collectionInfos.map { it.key }.toSet()
                     val catalogByKey = (catalogInfos + collectionInfos).associateBy { it.key }
-                    val savedValid = homeCatalogOrderKeys.filter { it in catalogByKey }.distinct()
+                    val savedValid = homeCatalogOrderKeys.filter { it in catalogByKey && !isSeasonalHomeKey(it) }.distinct()
 
                     if (savedValid.isNotEmpty()) {
                         val result = mutableListOf<String>()
@@ -318,7 +319,7 @@ class AddonManagerViewModel @Inject constructor(
                         }
                         unifiedCatalogs = seasonalHomeOrder(result).mapNotNull { catalogByKey[it] }
                     } else {
-                        unifiedCatalogs = catalogInfos + collectionInfos
+                        unifiedCatalogs = seasonalHomeOrder(addonKeys + collectionKeysSet).mapNotNull { catalogByKey[it] }
                     }
                 } else {
                     // Interleave based on saved order
@@ -326,7 +327,7 @@ class AddonManagerViewModel @Inject constructor(
                     val savedOrder = homeCatalogOrderKeys
                     val orderedKeys = savedOrder.filter { it in catalogByKey }
                     val unseenKeys = catalogByKey.keys - orderedKeys.toSet()
-                    unifiedCatalogs = seasonalHomeOrder(orderedKeys + unseenKeys, orderedKeys).mapNotNull { catalogByKey[it] }
+                    unifiedCatalogs = seasonalHomeOrder(orderedKeys + unseenKeys, savedOrder).mapNotNull { catalogByKey[it] }
                 }
 
                 PageState(
@@ -827,7 +828,7 @@ class AddonManagerViewModel @Inject constructor(
         val savedSet = savedValid.toSet()
         val effectiveOrder = savedValid + defaultOrderKeys.filterNot { it in savedSet }
 
-        return seasonalHomeOrder(effectiveOrder, savedValid).mapNotNull { key ->
+        return seasonalHomeOrder(effectiveOrder, savedOrderKeys).mapNotNull { key ->
             val entry = entryByKey[key] ?: return@mapNotNull null
             entry.copy(
                 isDisabled = entry.disableKey in disabledKeys ||

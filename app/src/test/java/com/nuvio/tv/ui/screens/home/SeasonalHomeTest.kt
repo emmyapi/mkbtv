@@ -12,6 +12,7 @@ import com.nuvio.tv.domain.model.catalogsForHomeSettings
 import com.nuvio.tv.domain.model.legacyKey
 import com.nuvio.tv.domain.model.seasonalHomeOrder
 import com.nuvio.tv.domain.model.stableKey
+import com.nuvio.tv.ui.screens.addon.collectionMoveTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -69,16 +70,39 @@ class SeasonalHomeTest {
         assertNull(seasonalSnapshotForDisplay(refill, addon, 4, 25_000L, history, row))
     }
 
-    @Test fun stableIdentitySupportsManualOrderAndSettingsDuringCalendarGaps() {
+    @Test fun seasonalDefaultsToBottomAndFollowsNewCatalogsAndCollections() {
         val key = row.legacyKey()
-        val order = listOf("other", key)
-        assertEquals(listOf(key, "other"), seasonalHomeOrder(order))
-        assertEquals(listOf(key, "other"), seasonalHomeOrder(order, listOf("other")))
-        assertEquals(order, seasonalHomeOrder(order, order))
+        val merged = listOf("movies", key, "custom-list", "collection_new")
+        val bottom = listOf("movies", "custom-list", "collection_new", key)
+        assertEquals(bottom, seasonalHomeOrder(merged))
+        assertEquals(bottom, seasonalHomeOrder(merged, listOf("movies")))
+        assertEquals(bottom, seasonalHomeOrder(merged, listOf("movies", key)))
+        assertEquals(listOf("movies"), seasonalHomeOrder(listOf("movies"), listOf(key)))
+    }
+
+    @Test fun manualFirstAndMiddlePositionsSurviveNewRows() {
+        val key = row.legacyKey()
+        for (saved in listOf(listOf(key, "movies"), listOf("movies", key, "custom-list"))) {
+            val merged = saved + "collection_new"
+            assertEquals(merged, seasonalHomeOrder(merged, saved))
+        }
+    }
+
+    @Test fun stableIdentitySupportsSettingsDuringCalendarGaps() {
         assertEquals(row.stableKey(), row.copy(catalogName = "New Year").stableKey())
         val gap = addon.copy(catalogs = emptyList(), seasonalOccurrence = null)
         assertTrue(gap.catalogs.isEmpty())
         assertEquals("seasonal", gap.catalogsForHomeSettings().single().id)
         assertTrue(gap.copy(seasonalValidUntil = null).catalogsForHomeSettings().isEmpty())
+    }
+
+    @Test fun followAddonOrderMovesCollectionsAcrossOrdinaryAddonBlocksOnly() {
+        val key = row.legacyKey()
+        val bottom = listOf("movies", "collection_favorites", key)
+        assertNull(collectionMoveTarget(bottom, 1, 1) { "Discovery" })
+        assertEquals(0, collectionMoveTarget(bottom, 1, -1) { "Discovery" })
+        val top = listOf("collection_favorites", "movies", "series", key)
+        assertEquals(2, collectionMoveTarget(top, 0, 1) { "Discovery" })
+        assertNull(collectionMoveTarget(top, 0, -1) { "Discovery" })
     }
 }

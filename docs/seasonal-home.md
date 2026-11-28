@@ -6,7 +6,7 @@ Across the 27 themes, 214 of the 216 opening selections are movies. The two deli
 
 ## What viewers see
 
-Show at most one seasonal shelf immediately below **Continue Watching**, or in the first catalog position when that row is absent. References span genres and decades, including recent releases and favorites that millennials and Gen Z grew up with. Rank by thematic connection and watch history without inferring anyone's age. Give it an English heading, a restrained accent and an optional icon. Use English UI copy and official English titles where available. Choose membership first, then give all visible cards one display order based on relevance to the theme and profile, freshness and variety. Either type can lead or occupy several consecutive positions. Preserve the displayed order during a visit and use the previous order to break close ties on return. Keep the shelf's identity stable across the year and respect a profile's saved hide or reorder choice. Opening details leaves watch progress intact.
+Show at most one seasonal shelf. Its default position is the bottom of Home, after the other rows and collections. References span genres and decades, including recent releases and favorites that millennials and Gen Z grew up with. Rank by thematic connection and watch history without inferring anyone's age. Give it an English heading, a restrained accent and an optional icon. Use English UI copy and official English titles where available. Choose membership first, then give all visible cards one display order based on relevance to the theme and profile, freshness and variety. Either type can lead or occupy several consecutive positions. Preserve the displayed order during a visit and use the previous order to break close ties on return. Keep the shelf's identity stable across the year and respect a profile's saved hide or reorder choice. Opening details leaves watch progress intact.
 
 ## How the shelf understands its theme
 
@@ -349,6 +349,8 @@ Two real collision tests fall in 2027. Protect Easter Sunday on March 28 over *U
 4. **Android Home and verification.** Integrate the English shelf with normal title details, row ordering, focus, profile switching and time-bound cache expiry. Validate the pilot on TV and run the calendar and selection checks for all 27 themes.
 
 ## Acceptance checks
+
+Home ordering checks cover automatic and manual placement, later catalogs and collections, hidden rows and cloud sync. The same seasonal identity keeps its position when the theme changes. Discovery's manifest lists the active shelf after its ordinary rows and omits it during a calendar gap.
 
 ### Worldwide catalog on November 28, 2026
 

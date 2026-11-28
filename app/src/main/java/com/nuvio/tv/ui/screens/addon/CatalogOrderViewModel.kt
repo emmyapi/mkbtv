@@ -11,6 +11,7 @@ import com.nuvio.tv.data.mediaserver.ServerCatalog
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.catalogsForHomeSettings
 import com.nuvio.tv.domain.model.seasonalHomeOrder
+import com.nuvio.tv.domain.model.isSeasonalHomeKey
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -106,51 +107,10 @@ class CatalogOrderViewModel @Inject constructor(
 
         val currentKeys = items.map { it.key }
 
-        val newIndex: Int
-        if (direction < 0) {
-            // Moving up: find the start of the previous addon block
-            // Skip any adjacent collections above
-            var scanIdx = currentIndex - 1
-            while (scanIdx >= 0 && currentKeys[scanIdx].startsWith("collection_")) {
-                scanIdx--
-            }
-            if (scanIdx < 0) return // already at top
-
-            // scanIdx is now pointing at an addon catalog. Find the start of its addon block.
-            val targetAddonName = items[scanIdx].addonName
-            while (scanIdx > 0 && !currentKeys[scanIdx - 1].startsWith("collection_") &&
-                items[scanIdx - 1].addonName == targetAddonName) {
-                scanIdx--
-            }
-            newIndex = scanIdx
-        } else {
-            // Moving down: find the end of the next addon block
-            var scanIdx = currentIndex + 1
-            while (scanIdx < currentKeys.size && currentKeys[scanIdx].startsWith("collection_")) {
-                scanIdx++
-            }
-            if (scanIdx >= currentKeys.size) return // already at bottom
-
-            // scanIdx is now pointing at an addon catalog. Find the end of its addon block.
-            val targetAddonName = items[scanIdx].addonName
-            while (scanIdx < currentKeys.lastIndex && !currentKeys[scanIdx + 1].startsWith("collection_") &&
-                items[scanIdx + 1].addonName == targetAddonName) {
-                scanIdx++
-            }
-            newIndex = scanIdx
-        }
-
-        if (newIndex == currentIndex) return
-
+        val newIndex = collectionMoveTarget(currentKeys, currentIndex, direction) { items[it].addonName } ?: return
         val reordered = currentKeys.toMutableList().apply {
             removeAt(currentIndex)
-            // After removal, if target is after current position, shift index by -1
-            val insertAt = if (direction < 0) {
-                newIndex
-            } else {
-                newIndex // currentIndex < newIndex, after removal target shifts by -1, but we want AFTER the block
-            }
-            add(insertAt, key)
+            add(newIndex, key)
         }
 
         viewModelScope.launch {
@@ -231,10 +191,10 @@ class CatalogOrderViewModel @Inject constructor(
         if (followAddonsOrder) {
             // In follow mode, addon catalogs stay in manifest order.
             // Collections are positioned based on their relative position in savedOrderKeys.
-            val addonKeys = defaultEntries.map { it.key }
+            val addonKeys = seasonalHomeOrder(defaultEntries.map { it.key })
             val collectionKeys = collectionEntries.map { it.key }.toSet()
 
-            val savedValid = savedOrderKeys.filter { it in availableMap }.distinct()
+            val savedValid = savedOrderKeys.filter { it in availableMap && !isSeasonalHomeKey(it) }.distinct()
 
             if (savedValid.isNotEmpty()) {
                 // Rebuild order: take saved order but replace addon sequence with manifest order.
@@ -296,24 +256,13 @@ class CatalogOrderViewModel @Inject constructor(
             effectiveOrder = savedValid + missing
         }
 
-        return seasonalHomeOrder(effectiveOrder, if (followAddonsOrder) emptyList() else savedOrderKeys).mapIndexedNotNull { index, key ->
+        val displayOrder = seasonalHomeOrder(effectiveOrder, if (followAddonsOrder) emptyList() else savedOrderKeys)
+        return displayOrder.mapIndexedNotNull { index, key ->
             val entry = availableMap[key] ?: return@mapIndexedNotNull null
             val displayName = customTitles[key]?.takeIf { it.isNotBlank() } ?: entry.catalogName
-            val isCollection = key.startsWith("collection_")
-
-            val canMoveUp: Boolean
-            val canMoveDown: Boolean
-            if (followAddonsOrder) {
-                if (isCollection) {
-                    canMoveUp = index > 0
-                    canMoveDown = index < effectiveOrder.lastIndex
-                } else {
-                    canMoveUp = false
-                    canMoveDown = false
-                }
-            } else {
-                canMoveUp = index > 0
-                canMoveDown = index < effectiveOrder.lastIndex
+            fun canMove(direction: Int): Boolean {
+                if (!followAddonsOrder) return index + direction in displayOrder.indices
+                return collectionMoveTarget(displayOrder, index, direction) { availableMap.getValue(displayOrder[it]).addonName } != null
             }
 
             CatalogOrderItem(
@@ -324,8 +273,8 @@ class CatalogOrderViewModel @Inject constructor(
                 typeLabel = entry.typeLabel,
                 isDisabled = entry.disableKey in disabledKeys ||
                     (entry.legacyDisableKey != null && entry.legacyDisableKey in disabledKeys),
-                canMoveUp = canMoveUp,
-                canMoveDown = canMoveDown
+                canMoveUp = canMove(-1),
+                canMoveDown = canMove(1)
             )
         }
     }
@@ -441,6 +390,22 @@ class CatalogOrderViewModel @Inject constructor(
     private fun catalogKey(addonId: String, type: String, catalogId: String): String {
         return homeCatalogKey(addonId, type, catalogId)
     }
+}
+
+/** Destination across the neighboring addon block in Follow Addons Order. */
+internal fun collectionMoveTarget(keys: List<String>, index: Int, direction: Int, addonNameAt: (Int) -> String): Int? {
+    if (keys.getOrNull(index)?.startsWith("collection_") != true || (direction != -1 && direction != 1)) return null
+    var target = index + direction
+    while (keys.getOrNull(target)?.startsWith("collection_") == true) target += direction
+    val neighbor = keys.getOrNull(target) ?: return null
+    if (isSeasonalHomeKey(neighbor)) return null
+    val owner = addonNameAt(target)
+    while (true) {
+        val next = keys.getOrNull(target + direction) ?: break
+        if (next.startsWith("collection_") || isSeasonalHomeKey(next) || addonNameAt(target + direction) != owner) break
+        target += direction
+    }
+    return target
 }
 
 data class CatalogOrderUiState(

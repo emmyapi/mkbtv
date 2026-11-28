@@ -431,18 +431,10 @@ fun GridHomeContent(
             result
         }
 
-        val split = remember(trimmedPostItems) {
-            val first = trimmedPostItems.firstOrNull()?.first as? GridItem.SectionDivider
-            if (isSeasonalCatalog(first?.addonId, first?.catalogId)) {
-                trimmedPostItems.indexOfFirst { (item, _) ->
-                    item !== first && (item is GridItem.SectionDivider || item is GridItem.CollectionHeader)
-                }.let { if (it < 0) trimmedPostItems.size else it }
-            } else 0
-        }
         val showUpcoming = uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()
-        val sectionMapping = remember(trimmedPostItems, preItems.size, continueWatchingOffset, split, showUpcoming) {
-            buildSectionMapping(trimmedPostItems.map { it.first }, preItems.size + continueWatchingOffset,
-                split.takeIf { showUpcoming })
+        val sectionsOffset = preItems.size + continueWatchingOffset + if (showUpcoming) 1 else 0
+        val sectionMapping = remember(trimmedPostItems, sectionsOffset) {
+            buildSectionMapping(trimmedPostItems.map { it.first }, sectionsOffset)
         }
 
         LazyVerticalGrid(
@@ -610,8 +602,7 @@ fun GridHomeContent(
                 }
             }
 
-            fun upcomingSection() {
-                if (!uiState.continueWatchingEnabled || uiState.upcomingItems.isEmpty()) return
+            if (showUpcoming) {
                 item(
                     key = "upcoming_section",
                     span = { GridItemSpan(maxLineSpan) },
@@ -691,9 +682,9 @@ fun GridHomeContent(
             }
 
             // Emit post-section items (SectionDividers, Content, SeeAll, Collections)
-            fun catalogItems(start: Int, end: Int) {
+            if (trimmedPostItems.isNotEmpty()) {
                 items(
-                    items = trimmedPostItems.subList(start, end),
+                    items = trimmedPostItems,
                     key = { it.second },
                     span = { pair ->
                         val spanCount = when (pair.first) {
@@ -877,10 +868,6 @@ fun GridHomeContent(
                 }
             }
             }
-
-            catalogItems(0, split)
-            upcomingSection()
-            catalogItems(split, trimmedPostItems.size)
         } // end LazyVerticalGrid
 
         // Sticky header overlay
@@ -1211,12 +1198,11 @@ private class SectionMapping(
     }
 }
 
-private fun buildSectionMapping(gridItems: List<GridItem>, indexOffset: Int, upcomingIndex: Int?): SectionMapping {
+private fun buildSectionMapping(gridItems: List<GridItem>, indexOffset: Int): SectionMapping {
     val mapping = mutableMapOf<Int, SectionInfo>()
     gridItems.forEachIndexed { index, item ->
         if (item is GridItem.SectionDivider) {
-            val upcomingOffset = if (upcomingIndex != null && index >= upcomingIndex) 1 else 0
-            mapping[index + indexOffset + upcomingOffset] = SectionInfo(
+            mapping[index + indexOffset] = SectionInfo(
                 catalogName = item.catalogName,
                 catalogId = item.catalogId,
                 addonId = item.addonId,

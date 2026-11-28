@@ -2,6 +2,7 @@ package com.nuvio.tv.core.sync
 
 import com.nuvio.tv.data.mediaserver.ServerCatalog
 import com.nuvio.tv.domain.model.catalogsForHomeSettings
+import com.nuvio.tv.domain.model.isSeasonalHomeKey
 import com.nuvio.tv.domain.model.seasonalHomeOrder
 import com.nuvio.tv.domain.model.catalogTypeKey
 import com.nuvio.tv.domain.model.catalogRowLegacyKey
@@ -36,12 +37,18 @@ internal fun homeCollectionKey(collectionId: String): String {
     return "collection_${collectionId}"
 }
 
-internal fun List<String>.withLocalServerKeys(local: List<String>): List<String> =
-    local.withIndex()
+internal fun List<String>.withLocalServerKeys(local: List<String>): List<String> {
+    val merged = local.withIndex()
         .filter { ServerCatalog.isServerKey(it.value) }
         .fold(filterNot(ServerCatalog::isServerKey).toMutableList()) { keys, (index, key) ->
             keys.apply { add(index.coerceAtMost(size), key) }
         }
+    val seasonal = lastOrNull()?.takeIf(::isSeasonalHomeKey) ?: return merged
+    // A shorter remote order can leave a device-only server key beyond the new end.
+    val placedServerAfterSeasonal = local.lastOrNull { !ServerCatalog.isServerKey(it) } == seasonal &&
+        local.lastOrNull() != seasonal
+    return if (placedServerAfterSeasonal) merged else seasonalHomeOrder(merged)
+}
 
 internal fun homeLegacyDisabledCatalogKey(
     addonBaseUrl: String,
@@ -95,7 +102,7 @@ internal fun buildHomeCatalogSyncPayload(
         catalogKeys.filterNot { it in savedSet } +
         collectionKeys.filterNot { it in savedSet }
 
-    val items = seasonalHomeOrder(mergedOrder, savedValid).mapIndexedNotNull { index, key ->
+    val items = seasonalHomeOrder(mergedOrder, localState.orderKeys).mapIndexedNotNull { index, key ->
         val entry = entryByKey[key] ?: return@mapIndexedNotNull null
         if (entry.isCollection) {
             SyncCatalogItem(

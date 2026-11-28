@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.home
 
-import com.nuvio.tv.domain.model.isSeasonalCatalog
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.activity.compose.BackHandler
@@ -433,9 +432,9 @@ fun ClassicHomeContent(
     val latestVisibleHomeRows = rememberUpdatedState(visibleHomeRows)
     val leadingSections = rememberUpdatedState(
         (if (uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()) 1 else 0) +
-            (if (uiState.continueWatchingEnabled && uiState.continueWatchingItems.isNotEmpty()) 1 else 0)
+            (if (uiState.continueWatchingEnabled && uiState.continueWatchingItems.isNotEmpty()) 1 else 0) +
+            (if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) 1 else 0)
     )
-    val hasUpcomingSection = rememberUpdatedState(uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty())
     LaunchedEffect(columnListState) {
         val prefetchAhead = 1
         snapshotFlow {
@@ -449,13 +448,8 @@ fun ClassicHomeContent(
             // Only fires when visible indices stabilize for 240ms.
             delay(240)
             val rows = latestVisibleHomeRows.value
-            val firstCatalog = (rows.firstOrNull() as? HomeRow.Catalog)?.row
-            val upcomingPosition = if (isSeasonalCatalog(firstCatalog?.addonId, firstCatalog?.catalogId)) 1 else 0
             for (idx in firstVisible.coerceAtLeast(0)..(lastVisible + prefetchAhead)) {
-                val section = idx - leadingSections.value
-                if (hasUpcomingSection.value && section == upcomingPosition) continue
-                val rowIdx = if (hasUpcomingSection.value && section > upcomingPosition) section - 1 else section
-                val row = rows.getOrNull(rowIdx) ?: continue
+                val row = rows.getOrNull(idx - leadingSections.value) ?: continue
                 if (row is HomeRow.Catalog && row.row.isLoading &&
                     row.row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
                 ) {
@@ -718,8 +712,7 @@ fun ClassicHomeContent(
             }
         }
 
-        fun upcomingSection() {
-            if (!uiState.continueWatchingEnabled || uiState.upcomingItems.isEmpty()) return
+        if (uiState.continueWatchingEnabled && uiState.upcomingItems.isNotEmpty()) {
             item(key = "upcoming_section", contentType = "upcoming_section") {
                 LaunchedEffect(upcomingPendingScrollToStart.intValue) {
                     if (upcomingPendingScrollToStart.intValue > 0) {
@@ -802,8 +795,8 @@ fun ClassicHomeContent(
             }
         }
 
-        fun catalogRows(start: Int, end: Int) = itemsIndexed(
-            items = visibleHomeRows.subList(start, end),
+        itemsIndexed(
+            items = visibleHomeRows,
             key = { _, item ->
                 when (item) {
                     is HomeRow.Catalog -> {
@@ -821,8 +814,7 @@ fun ClassicHomeContent(
                     is HomeRow.PlaceholderCatalog -> "catalog_row"
                 }
             }
-        ) { localIndex, homeRow ->
-            val index = localIndex + start
+        ) { index, homeRow ->
             when (homeRow) {
                 is HomeRow.Catalog -> {
                     val catalogRow = homeRow.row
@@ -948,11 +940,6 @@ fun ClassicHomeContent(
                 is HomeRow.PlaceholderCatalog -> { }
             }
         }
-        val first = (visibleHomeRows.firstOrNull() as? HomeRow.Catalog)?.row
-        val split = if (isSeasonalCatalog(first?.addonId, first?.catalogId)) 1 else 0
-        catalogRows(0, split)
-        upcomingSection()
-        catalogRows(split, visibleHomeRows.size)
     }
     }
     } // CompositionLocalProvider

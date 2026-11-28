@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.home
 
-import com.nuvio.tv.domain.model.isSeasonalCatalog
 import android.content.Context
 import androidx.compose.runtime.Immutable
 import com.nuvio.tv.LocaleCache
@@ -324,11 +323,6 @@ internal fun buildModernHomePresentation(
             }
         }
 
-        val upcoming = indexOfFirst { it.key == MODERN_UPCOMING_ROW_KEY }
-        val firstCatalog = getOrNull(upcoming + 1)
-        if (upcoming >= 0 && firstCatalog != null && isSeasonalCatalog(firstCatalog.addonId, firstCatalog.catalogId)) {
-            add(upcoming + 1, removeAt(upcoming))
-        }
         cache.catalogRows.keys.retainAll(activeCatalogKeys)
         cache.catalogItemCache.keys.retainAll(activeCatalogKeys)
         cache.collectionRows.keys.retainAll(activeCollectionKeys)

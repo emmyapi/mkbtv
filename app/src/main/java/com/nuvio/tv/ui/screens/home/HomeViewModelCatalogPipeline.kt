@@ -763,9 +763,6 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 placeholderDescriptors.associateBy { it.catalogKey }
             }
             val addedCollectionIds = mutableSetOf<String>()
-            val firstRow = displayRowsByKey[orderedKeys.firstOrNull()]
-            val seasonalFirst = firstRow?.takeIf { isSeasonalCatalog(it.addonId, it.catalogId) && it.items.isNotEmpty() }
-            seasonalFirst?.let { add(HomeRow.Catalog(it)) }
             collectionsCache.forEach { collection ->
                 val key = "collection_${collection.id}"
             if (collection.pinToTop && key !in disabledHomeCatalogKeys && addedCollectionIds.add(collection.id)) {
@@ -773,7 +770,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
         }
         for (key in orderedKeys) {
-            if (key in disabledHomeCatalogKeys || (seasonalFirst != null && key == seasonalFirst.legacyKey())) continue
+            if (key in disabledHomeCatalogKeys) continue
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
                 if (!collectionEntry.pinToTop && addedCollectionIds.add(collectionEntry.id)) {

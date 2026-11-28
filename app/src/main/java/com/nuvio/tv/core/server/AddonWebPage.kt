@@ -1709,15 +1709,15 @@ function renderCatalogs() {
     if (catalog.isDisabled) li.style.opacity = '0.45';
 
     var isFirst = (i === 0);
-    var isLast = (i === catalogs.length - 1);
+    var isLast = (i >= lastMovableCatalogIndex());
     var toggleClass = catalog.isDisabled ? 'btn btn-toggle disabled' : 'btn btn-toggle';
     var isCollection = catalog.isCollection || false;
     var typeDisplay = isCollection ? 'Collection' : formatCatalogTitle(catalog.catalogName, catalog.type);
 
     // In follow addons order mode, disable move buttons for non-collection items
     var moveDisabled = followAddonsOrder && !isCollection;
-    var upDisabled = isFirst || moveDisabled;
-    var downDisabled = isLast || moveDisabled;
+    var upDisabled = catalogMoveTarget(i, -1) < 0;
+    var downDisabled = catalogMoveTarget(i, 1) < 0;
     var topDisabled = isFirst || moveDisabled;
     var bottomDisabled = isLast || moveDisabled;
 
@@ -1773,8 +1773,8 @@ function toggleFollowAddonsOrder() {
     var orderedAddons = manifestAddonOrder.map(function(c) { return addonByKey[c.key]; }).filter(Boolean);
     // Add any addon items not in manifest (shouldn't happen but safety)
     addonItems.forEach(function(a) { if (orderedAddons.indexOf(a) < 0) orderedAddons.push(a); });
-    // Place collections at end
-    catalogs = orderedAddons.concat(collectionItems);
+    catalogs = orderedAddons.filter(function(c) { return !c.isSeasonal; })
+      .concat(collectionItems, orderedAddons.filter(function(c) { return c.isSeasonal; }));
   }
   renderCatalogs();
 }
@@ -1788,41 +1788,34 @@ function moveAddon(index, direction) {
   renderAddons();
 }
 
+function lastMovableCatalogIndex() {
+  var last = catalogs.length - 1;
+  return followAddonsOrder && last >= 0 && catalogs[last].isSeasonal ? last - 1 : last;
+}
+
+function catalogMoveTarget(index, direction) {
+  var item = catalogs[index];
+  if (!item) return -1;
+  var target = index + direction;
+  if (!followAddonsOrder) return catalogs[target] ? target : -1;
+  if (!item.isCollection) return -1;
+  while (catalogs[target] && catalogs[target].isCollection) target += direction;
+  if (!catalogs[target] || catalogs[target].isSeasonal) return -1;
+  var owner = catalogs[target].addonName;
+  var next = catalogs[target + direction];
+  while (next && !next.isCollection && !next.isSeasonal && next.addonName === owner) {
+    target += direction;
+    next = catalogs[target + direction];
+  }
+  return target;
+}
+
 function moveCatalog(index, direction) {
   if (!allowCatalogManagement) return;
-  var item = catalogs[index];
-  if (!item) return;
-
-  if (followAddonsOrder) {
-    // In follow mode, only collections can move, and they jump between addon blocks
-    if (!item.isCollection) return;
-    var newIndex;
-    if (direction < 0) {
-      // Move up: find start of previous addon block
-      var scanIdx = index - 1;
-      while (scanIdx >= 0 && catalogs[scanIdx].isCollection) scanIdx--;
-      if (scanIdx < 0) return;
-      var targetAddon = catalogs[scanIdx].addonName;
-      while (scanIdx > 0 && !catalogs[scanIdx - 1].isCollection && catalogs[scanIdx - 1].addonName === targetAddon) scanIdx--;
-      newIndex = scanIdx;
-    } else {
-      // Move down: find end of next addon block
-      var scanIdx = index + 1;
-      while (scanIdx < catalogs.length && catalogs[scanIdx].isCollection) scanIdx++;
-      if (scanIdx >= catalogs.length) return;
-      var targetAddon = catalogs[scanIdx].addonName;
-      while (scanIdx < catalogs.length - 1 && !catalogs[scanIdx + 1].isCollection && catalogs[scanIdx + 1].addonName === targetAddon) scanIdx++;
-      newIndex = scanIdx;
-    }
-    if (newIndex === index) return;
-    catalogs.splice(index, 1);
-    catalogs.splice(direction < 0 ? newIndex : newIndex, 0, item);
-  } else {
-    var newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= catalogs.length) return;
-    catalogs.splice(index, 1);
-    catalogs.splice(newIndex, 0, item);
-  }
+  var target = catalogMoveTarget(index, direction);
+  if (target < 0) return;
+  var item = catalogs.splice(index, 1)[0];
+  catalogs.splice(target, 0, item);
   renderCatalogs();
 }
 
@@ -1837,10 +1830,11 @@ function moveCatalogToTop(index) {
 
 function moveCatalogToBottom(index) {
   if (!allowCatalogManagement) return;
-  if (index >= catalogs.length - 1) return;
+  var last = lastMovableCatalogIndex();
+  if (index >= last) return;
   if (followAddonsOrder && !catalogs[index].isCollection) return;
   var item = catalogs.splice(index, 1)[0];
-  catalogs.push(item);
+  catalogs.splice(last, 0, item);
   renderCatalogs();
 }
 

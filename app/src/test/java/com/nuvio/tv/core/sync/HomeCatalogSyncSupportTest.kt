@@ -193,6 +193,48 @@ class HomeCatalogSyncSupportTest {
         assertFalse(payload.items.last().enabled)
     }
 
+    @Test
+    fun `seasonal sync order includes new collections and preserves a hidden manual position`() {
+        val discovery = testAddon(
+            id = "dk.mkb.nuvio.discovery.p3",
+            baseUrl = "https://example.com",
+            catalogs = listOf(
+                CatalogDescriptor(ContentType.UNKNOWN, rawType = "mixed", id = "seasonal", name = "Christmas"),
+                CatalogDescriptor(ContentType.MOVIE, id = "movies", name = "Movies")
+            )
+        )
+        val key = homeCatalogKey(discovery.id, "mixed", "seasonal")
+        val movieKey = homeCatalogKey(discovery.id, "movie", "movies")
+        val collections = listOf(Collection(id = "favorites", title = "Favorites"))
+        fun items(saved: List<String>) = buildHomeCatalogSyncPayload(
+            listOf(discovery), collections, LocalHomeCatalogSettingsState(orderKeys = saved, disabledKeys = setOf(key))
+        ).items
+
+        for (saved in listOf(emptyList(), listOf(movieKey, key))) {
+            val synced = items(saved)
+            assertEquals(listOf("movies", "favorites", "seasonal"), synced.map { if (it.isCollection) it.collectionId else it.catalogId })
+            assertFalse(synced.last().enabled)
+        }
+        val manual = items(listOf(key, movieKey))
+        assertEquals("seasonal", manual.first().catalogId)
+        assertFalse(manual.first().enabled)
+    }
+
+    @Test
+    fun `restoring shorter shared order keeps seasonal below local servers unless manually placed`() {
+        val key = homeCatalogKey("dk.mkb.nuvio.discovery.p3", "mixed", "seasonal")
+        val server = com.nuvio.tv.data.mediaserver.ServerCatalog.addonId("local") + "_movie_library"
+        val remote = listOf("movies", key)
+        for (local in listOf(
+            listOf("movies", "removed", server, key),
+            listOf("movies", "removed", server),
+            listOf("movies", key, "removed", server)
+        )) {
+            assertEquals(listOf("movies", server, key), remote.withLocalServerKeys(local))
+        }
+        assertEquals(listOf("movies", key, server), remote.withLocalServerKeys(listOf("movies", key, server)))
+    }
+
     private fun testAddon(
         id: String,
         baseUrl: String,

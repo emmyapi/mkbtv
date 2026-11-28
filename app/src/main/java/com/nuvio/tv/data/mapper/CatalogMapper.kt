@@ -2,6 +2,7 @@ package com.nuvio.tv.data.mapper
 
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
 import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.MovieDistributionDates
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 
@@ -12,9 +13,11 @@ fun MetaPreviewDto.toDomainOrNull(catalogType: String, sourceAddonBaseUrl: Strin
     val resolvedId = id?.takeIf { it.isNotBlank() } ?: return null
     val resolvedName = name?.takeIf { it.isNotBlank() } ?: return null
     val resolvedType = type?.takeIf { it.isNotBlank() } ?: catalogType
+    val contentType = ContentType.fromString(resolvedType)
+    val dates = appExtras?.releaseDates?.results
     return MetaPreview(
         id = resolvedId,
-        type = ContentType.fromString(resolvedType),
+        type = contentType,
         rawType = resolvedType,
         name = resolvedName,
         poster = poster,
@@ -28,6 +31,10 @@ fun MetaPreviewDto.toDomainOrNull(catalogType: String, sourceAddonBaseUrl: Strin
         genres = genres ?: emptyList(),
         runtime = runtime,
         status = status?.trim()?.takeIf { it.isNotBlank() },
+        movieDistributionDates = if (contentType == ContentType.MOVIE && !dates.isNullOrEmpty()) {
+            MovieDistributionDates.fromTypedDates(dates.asSequence().flatMap { it.releaseDates.orEmpty().asSequence() }
+                .map { it.type to it.releaseDate })
+        } else null,
         ageRating = preferredAgeRating(appExtras?.certificationLocal, appExtras?.certification, ageRating),
         released = released,
         country = country,

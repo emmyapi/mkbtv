@@ -1,12 +1,28 @@
 package com.nuvio.tv.ui.screens.search
 
+import com.nuvio.tv.data.mapper.toDomainOrNull
+import com.nuvio.tv.data.remote.dto.MetaPreviewDto
+import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.domain.model.DiscoverLocation
+import com.nuvio.tv.domain.model.MovieDistributionDates
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchPresentationRulesTest {
+
+    @Test
+    fun `movie poster matches normal search evidence and the active Discover page`() {
+        val movie = requireNotNull(MetaPreviewDto(id = "tt1", name = "Movie").toDomainOrNull("movie"))
+            .copy(movieDistributionDates = MovieDistributionDates(null, "2001-01-01"))
+        val state = SearchUiState(movieReleases = mapOf("tt1" to MovieRelease("cinema", ageRating = "PG")))
+        assertEquals("home", state.movieRelease(movie)?.status)
+        assertEquals("home", state.discoverMovieRelease(movie)?.status)
+        assertEquals(MovieRelease("cinema", ageRating = "PG"),
+            state.copy(discoverReleaseWindow = ReleaseWindow.CINEMA).discoverMovieRelease(movie))
+        assertEquals("upcoming", SearchUiState(discoverReleaseWindow = ReleaseWindow.UPCOMING).discoverMovieRelease(movie)?.status)
+    }
 
     @Test
     fun `one character remains in discover without becoming a submitted search`() {

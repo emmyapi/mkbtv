@@ -45,6 +45,16 @@ class MetaMapperTest {
     }
 
     @Test
+    fun `catalog preview and details retain the same typed movie evidence`() {
+        val item = """{"id":"tt1","name":"Movie","type":"movie","app_extras":{"releaseDates":{"results":[
+          {"iso_3166_1":"US","release_dates":[{"type":4,"release_date":"2020-02-03"}]}]}}}"""
+        val dto = Moshi.Builder().build().adapter(MetaPreviewDto::class.java).fromJson(item)!!
+        val dates = dto.toDomainOrNull("movie")?.movieDistributionDates
+        assertEquals("2020-02-03", dates?.homeDate)
+        assertEquals(dates, parse("""{"meta":$item}""").movieDistributionDates)
+    }
+
+    @Test
     fun `default addon certification is used when localized value is blank`() {
         val result = parse(
             """

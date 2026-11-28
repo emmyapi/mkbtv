@@ -430,8 +430,15 @@ def release_candidates(db, opt, pools, today):
     # Indexed title/actor matches take priority on a keyword search. Share the
     # time budget so an expensive native feed scan can't starve the IMDb pool.
     broad = not (opt.keyword or opt.first_year or opt.last_year)
+    broad_announced = broad and opt.release_window == "upcoming"
+    scans = []
     for pool, uid in (pools if opt.keyword or opt.release_window == "upcoming" else reversed(pools)):
-        deadline = time.monotonic() + 0.04 / len(pools)
+        if broad_announced and pool == "title":
+            # Reserve a separate index scan for films still to open this year.
+            scans.append((pool, uid, True))
+        scans.append((pool, uid, False))
+    for pool, uid, current_year_only in scans:
+        deadline = time.monotonic() + 0.04 / len(scans)
         db.set_progress_handler(lambda: time.monotonic() >= deadline, 1000)
         try:
             terms, args = predicates(opt, pool, uid, include_watch=False)
@@ -441,20 +448,23 @@ def release_candidates(db, opt, pools, today):
             order = "t.votes DESC,t.id" if pool == "title" else "t.pos,t.id"
             if pool != "title":
                 terms.append("(" + uid + " GLOB 'tt[0-9]*' OR " + uid + " GLOB 'tmdb:[0-9]*')")
-            if broad and opt.release_window == "upcoming":
-                # For IMDb, walk the year index from the nearest future year.
-                # Public feeds also carry announced films later in this year.
-                terms.append("t.year>=?")
-                args.append(today.year + 1 if pool == "title" else today.year)
+            limit = RELEASE_CANDIDATES - len(ids)
+            if broad_announced:
                 if pool == "title":
+                    terms.append("t.year=?" if current_year_only else "t.year>?")
+                    if current_year_only:
+                        limit = min(limit, RELEASE_CANDIDATES // 2)
                     order = "t.year,t.id DESC"
+                else:
+                    terms.append("t.year>=?")
+                args.append(today.year)
             elif broad and pool == "title" and opt.release_window == "cinema":
                 # Let SQLite stop after the first recent titles in vote order.
                 # A year-index range scan would sort every film in those years.
                 terms.append("+t.year BETWEEN ? AND ?")
                 args.extend([today.year - 2, today.year + 1])
             cursor = db.execute("SELECT " + uid + " FROM " + pool + " t" + filtered(terms)
-                                + " ORDER BY " + order + " LIMIT ?", [*args, RELEASE_CANDIDATES - len(ids)])
+                                + " ORDER BY " + order + " LIMIT ?", [*args, limit])
             ids.extend(row[0] for row in cursor)
         except sqlite3.OperationalError as error:
             if error.sqlite_errorcode != sqlite3.SQLITE_INTERRUPT:

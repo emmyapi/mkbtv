@@ -4,7 +4,9 @@ import androidx.compose.runtime.Immutable
 import com.nuvio.tv.data.repository.DiscoverSource
 import com.nuvio.tv.data.repository.DiscoverFailure
 import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.data.repository.movieReleaseFromDates
 import com.nuvio.tv.data.repository.movieReleaseId
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.DiscoverLocation
@@ -67,7 +69,18 @@ data class SearchUiState(
     val recentSearches: List<String> = emptyList(),
     val suggestions: List<String> = emptyList()
 ) {
-    fun movieRelease(item: MetaPreview): MovieRelease? = movieReleases[item.movieReleaseId]
+    fun movieRelease(item: MetaPreview): MovieRelease? =
+        if (item.type == ContentType.MOVIE) movieReleaseFromDates(item.movieDistributionDates, movieReleases[item.movieReleaseId])
+        else null
+
+    fun discoverMovieRelease(item: MetaPreview): MovieRelease? {
+        if (discoverReleaseWindow == ReleaseWindow.ANY) return movieRelease(item)
+        if (item.type != ContentType.MOVIE) return null
+        // The server matched this poster before counting and paginating the selected release window.
+        val phase = discoverReleaseWindow.name.lowercase()
+        val cached = movieReleases[item.movieReleaseId]
+        return if (cached?.status == phase) cached else MovieRelease(phase, ageRating = cached?.ageRating)
+    }
 
     val discoverError: Boolean get() = discoverFailure != null
 }

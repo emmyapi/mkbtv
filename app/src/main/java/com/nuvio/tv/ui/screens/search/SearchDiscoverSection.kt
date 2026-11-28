@@ -446,7 +446,7 @@ internal fun DiscoverSection(
                     DiscoverGrid(
                         items = uiState.discoverResults,
                         resolveArtwork = resolveArtwork,
-                        movieRelease = if (uiState.movieReleasesEnabled) uiState::movieRelease else null,
+                        movieRelease = if (uiState.movieReleasesEnabled) uiState::discoverMovieRelease else null,
                         requestMovieReleases = requestMovieReleases.takeIf {
                             uiState.movieReleasesEnabled && uiState.discoverWatch == DiscoverWatch.ANY
                         },

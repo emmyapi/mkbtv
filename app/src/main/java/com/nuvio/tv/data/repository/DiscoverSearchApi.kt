@@ -120,11 +120,11 @@ data class MovieRelease(
 internal fun movieReleaseFromDates(
     local: MovieDistributionDates?,
     household: MovieRelease? = null,
-    today: LocalDate = LocalDate.now(ZoneOffset.UTC)
+    today: LocalDate? = null
 ): MovieRelease? {
     if (local == null || (local.cinemaDate == null && local.homeDate == null)) return household
     val dates = local.merge(household?.let { MovieDistributionDates(it.cinemaDate, it.homeDate) })
-    val asOf = today.toString()
+    val asOf = (today ?: LocalDate.now(ZoneOffset.UTC)).toString()
     val phase = when {
         household?.status == "home" || dates.homeDate?.let { it <= asOf } == true -> "home"
         household?.status == "cinema" || dates.cinemaDate?.let { it <= asOf } == true -> "cinema"

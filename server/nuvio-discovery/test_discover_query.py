@@ -137,6 +137,24 @@ class DiscoverQueries(unittest.TestCase):
             self.assertEqual((0, True), (result["total"], result["releasePending"]))
             lookup.assert_called_once_with(["tt0000005"])
 
+    def test_broad_announced_warms_this_year_and_next_year_within_one_public_batch(self):
+        releases = MovieReleases(self.data)
+        year = datetime.now(timezone.utc).year
+        current = {f"tt{n:07d}" for n in range(100, 130)}
+        future = {f"tt{n:07d}" for n in range(200, 230)}
+        with sqlite3.connect(self.data / "catalog.sqlite3") as db:
+            db.executemany("INSERT INTO title(id,imdb_id,type,year) VALUES(?,?,'movie',?)",
+                           [(int(uid[2:]), uid, year) for uid in current] +
+                           [(int(uid[2:]), uid, year + 1) for uid in future])
+        with patch.object(releases, "lookup", return_value={"pending": True}) as lookup:
+            result = self.call(releases=releases, releaseWindow="upcoming", watch="watched",
+                               watched_movies=["tt0000999"])
+            self.assertEqual((0, True), (result["total"], result["releasePending"]))
+            lookup.assert_called_once()
+            ids = lookup.call_args.args[0]
+            self.assertEqual(24, len(ids))
+            self.assertEqual((12, 12), (len(current.intersection(ids)), len(future.intersection(ids))))
+
     def test_filtered_cold_context_queues_only_public_movie_ids(self):
         releases = MovieReleases(self.data)
         with patch.object(releases, "lookup", return_value={"pending": True}) as lookup:

@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
 import com.nuvio.tv.data.repository.MovieRelease
-import com.nuvio.tv.data.repository.movieReleaseFromDates
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -88,8 +87,7 @@ fun GridContentCard(
     onFocused: () -> Unit = {}
 ) {
     val hasMovieMetadata = showMovieRelease && item.type == ContentType.MOVIE
-    val release = if (hasMovieMetadata) movieReleaseFromDates(item.movieDistributionDates, movieRelease) else null
-    val nextReleaseDate = release.nextDateLabel()
+    val nextReleaseDate = movieRelease.nextDateLabel()
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val density = LocalDensity.current
@@ -393,7 +391,7 @@ fun GridContentCard(
                 )
             }
         }
-        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, release)
+        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, movieRelease)
     }
 }
 

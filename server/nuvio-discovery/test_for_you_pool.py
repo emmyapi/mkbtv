@@ -3,10 +3,12 @@ import sqlite3
 import tempfile
 import unittest
 from collections import Counter
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import for_you_pool as pool
+from for_you_rank import release_age_group, select_lineup
 
 
 def meta(uid, genres=('Drama',), kind='movie', **values):
@@ -47,7 +49,7 @@ class Fixture:
         prefix = 'tt' if basis == 'simkl' else 'tmdb:'
         return [('movie', prefix + '3000'), ('movie', prefix + str(3100 + number))]
 
-    def catalog(self, kind, genre, country, page):
+    def catalog(self, kind, genre, country, page, recent=False):
         self.calls['catalog'] += 1
         if self.offline:
             raise pool.d.DiscoveryError('UPSTREAM_HTTP_429')
@@ -159,7 +161,7 @@ class PoolTests(unittest.TestCase):
             if basis == 'tmdb':
                 return {'error': 'unknown schema'}
             return [None, ['bad'], ('movie', 'tt3000'), ('movie', 'tt5555')]
-        def chart(kind, genre, country, page):
+        def chart(kind, genre, country, page, recent=False):
             if kind == 'movie':
                 raise TypeError('metas was null')
             return [meta('tt8899', [genre], 'series')]
@@ -249,20 +251,102 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(result['genre_votes'], {'Drama': 1, 'Horror': 1})
         self.assertTrue(all('moviedb_id' not in item['meta'] for item in result['candidates']))
 
+    def test_same_title_keeps_earliest_premiere_through_direct_and_native_alias_merges(self):
+        newer = meta('tt3', kind='series', name='Preferred title', poster='preferred-poster', moviedb_id='301',
+                     released='2025-02-14', releaseInfo='2025–')
+        for uid in ('tt3', 'tmdb:301'):
+            for original in ({'released': '2024-11-08', 'releaseInfo': '2024–'},
+                             {'releaseInfo': '2019–2024'}):
+                with self.subTest(uid=uid, original=original):
+                    first = meta(uid, kind='series', name='Earlier source', **original)
+                    result = pool.prepare_pool(self.root, history([]), fallback=[first, newer])
+                    self.assertEqual(len(result['candidates']), 1)
+                    merged = result['candidates'][0]['meta']
+                    self.assertEqual(merged['name'], 'Preferred title')
+                    self.assertEqual(merged['poster'], 'preferred-poster')
+                    self.assertEqual(merged['releaseInfo'], original['releaseInfo'])
+                    self.assertEqual(release_age_group(merged, date(2026, 11, 28)), 'older')
+                    if 'released' in original:
+                        self.assertEqual(merged['released'][:10], original['released'])
+
     def test_worldwide_and_country_catalog_use_typed_filters_and_links(self):
         provider = pool.Provider(self.root)
         seen = []
-        def request(url, parse, ttl, params):
+        def request(url, parse, ttl, params, **kwargs):
             seen.append((url, params))
             return parse(b'<div id="media-list"><div class="page_wrapper" id="page_2">'
-                         b'<a href="/tv/2-show"></a><a href="/movie/3-film"></a></div></div>')
+                         b'<a href="/tv/2-show?language=en-US"></a><a href="/movie/3-film"></a>'
+                         b'<a href="//unrelated.example/movie/7"></a></div></div>')
         with patch.object(provider.world, 'request', side_effect=request):
             self.assertEqual(provider.catalog('series', 'Science Fiction', 'South Korea', 2), [('series', 'tmdb:2')])
             self.assertEqual(provider.catalog('movie', '', '', 2), [('movie', 'tmdb:3')])
+            for kind, ident in (('movie', 'tmdb:3'), ('series', 'tmdb:2')):
+                with patch.object(pool, 'datetime', wraps=datetime) as clock:
+                    clock.now.return_value = datetime(2024, 2, 29, tzinfo=timezone.utc)
+                    self.assertEqual(provider.catalog(kind, 'Science Fiction', '', 2, True),
+                                     [(kind, ident, ['2022-02-28', '2024-02-29'])])
         self.assertEqual(seen[0][1]['with_origin_country'], 'KR')
         self.assertEqual(seen[0][1]['with_genres'], 10765)
         self.assertNotIn('region', seen[1][1])
         self.assertIn('primary_release_date.lte', seen[1][1])
+        for (url, params), field in zip(seen[2:], ('primary_release_date', 'first_air_date')):
+            self.assertTrue(url.endswith('/discover/movie/items' if field.startswith('primary') else '/discover/tv/items'))
+            self.assertEqual(params[field + '.gte'], '2022-02-28')
+            self.assertEqual(params[field + '.lte'], '2024-02-29')
+            self.assertEqual(params['with_genres'], 878 if field.startswith('primary') else 10765)
+            self.assertNotIn('region', params)
+            self.assertNotIn('with_original_language', params)
+
+    def test_new_worldwide_matches_flow_through_shared_cache_and_published_poster(self):
+        today = date(2026, 11, 28)
+        at = int(datetime(2026, 11, 28, tzinfo=timezone.utc).timestamp() * 1000)
+        window = ['2024-11-28', '2026-11-28']
+        doc = history([('movie', 'tt1')])
+        arrivals = [401, 402, 403]
+        seen = set()
+        def catalog(kind, genre, country, page, recent=False):
+            if recent:
+                seen.add((kind, genre))
+                return [(kind, f'tmdb:{n}', window) for n in arrivals]
+            return [meta('tt405', kind=kind, releaseInfo='2026', released='2026-12-25')]
+        def card(kind, uid):
+            n = uid.split(':')[-1].removeprefix('tt')
+            if n == '403':
+                return meta('tt403', ('Horror',), kind, moviedb_id=n, releaseInfo='2026'), []
+            fields = {'releaseInfo': '2026'}
+            if n == '402':
+                fields['released'] = '2026-12-15'
+                fields['first_air_date' if kind == 'series' else 'release_date'] = '2025-06-10'
+            return meta('tt' + n, kind=kind, moviedb_id=n, **fields), []
+        with patch.object(self.provider, 'catalog', side_effect=catalog), \
+             patch.object(self.provider, 'related', return_value=[]), \
+             patch.object(self.provider, 'card', side_effect=card):
+            result = self.prepare(doc)
+            result = self.prepare(doc, result)
+            self.assertEqual(seen, {('series', 'Drama'), ('movie', 'Drama')})
+            arrivals.append(404)
+            with sqlite3.connect(self.root / 'for-you/public.sqlite3') as db:
+                db.execute("UPDATE lookup SET due=0 WHERE basis='catalog'")
+            result = self.prepare(doc)
+        result = pool.prepare_pool(self.root, doc)
+        raw = {(c['meta']['type'], c['meta']['id']): c for c in result['candidates']}
+        for kind in ('movie', 'series'):
+            item = raw[kind, 'tt401']
+            self.assertEqual(item['meta']['mkbtvPremiereWindow'], window)
+            self.assertEqual(item['sources'][0]['basis'], 'Recent worldwide Drama ' + kind)
+            self.assertEqual(raw[kind, 'tt402']['meta']['released'], '2025-06-10T00:00:00.000Z')
+            self.assertNotIn((kind, 'tt403'), raw)
+        cards, _ = select_lineup(result, [], {}, now_ms=at)
+        self.assertIn('tt404', {card['id'] for card in cards})
+        self.assertNotIn('tt405', {card['id'] for card in cards})
+        self.assertTrue(all(release_age_group(card, today) == 'recent' for card in cards))
+        for card in cards:
+            saved = pool.d.safe_meta(json.loads(json.dumps(card)))
+            self.assertEqual(release_age_group(saved, date(2028, 12, 1)), 'older')
+        self.assertEqual(pool.d.safe_meta(meta('tt7', release_date='2026-11-01', released='1987-05-01'))['released'],
+                         '1987-05-01T00:00:00.000Z')
+        for extra in ({'year': 2027}, {'first_air_date': '2027'}, {'released': '2027'}):
+            self.assertEqual(release_age_group(pool.d.safe_meta(meta('tt8', kind='series', **extra)), today), 'future')
 
 
 if __name__ == '__main__':

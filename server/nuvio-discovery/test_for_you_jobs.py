@@ -55,7 +55,8 @@ class ForYouJobTests(unittest.TestCase):
         with patch.object(for_you, 'pool_for', return_value=pool):
             summary = for_you.preview(self.root, 1, 3)
             detail = for_you.preview(self.root, 1, 1, details=True)
-        self.assertEqual(summary['visits'], [{'size': 60, 'arrivals': 30, 'front_arrivals': 10, 'rewatches': 0}] * 3)
+        self.assertEqual(summary['visits'], [{'size': 60, 'arrivals': 30, 'front_arrivals': 10, 'rewatches': 0,
+                                              'recent': 0, 'front_recent': 0, 'unknown_release': 60}] * 3)
         self.assertEqual(detail['visits'][0]['cards'][0]['sources'], [reason])
         self.assertEqual(before, self.catalog.read_bytes())
         self.assertFalse((self.root / 'for-you').exists())

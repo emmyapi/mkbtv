@@ -1,4 +1,5 @@
 """Publish a profile's For You lineup on visits and completed watches."""
+from datetime import datetime, timezone
 import fcntl
 import json
 import logging
@@ -6,7 +7,10 @@ import time
 
 import discovery as d
 import for_you_pool
-from for_you_rank import select_lineup
+from for_you_rank import release_age_group, select_lineup
+
+
+LINEUP_VERSION = 2  # Whole-history ranking with a soft release-age balance.
 
 
 def cards_for(profile):
@@ -53,14 +57,15 @@ def canonical_stamps(stamps, aliases):
 def publish(root, document, previous, profile, session, excluded, signature, progress):
     saved = previous.get('for_you', {})
     old_cards = cards_for(previous)
-    visits = saved.get('visits', [])
+    migration = saved.get('version') != LINEUP_VERSION
+    visits = saved.get('visits', [previous['session']] if previous.get('session') else [])
     visit = session['session'] if session else None
     new_visit = bool(visit and visit not in visits)
     changed = (signature != previous.get('history_signature') or progress != previous.get('seasonal_progress')
                or profile.get('for_you_unwatched', {}) != previous.get('for_you_unwatched', {}))
     state = saved
     coverage = previous.get('summary', {}).get('for_you', {})
-    if saved and not new_visit and not changed and not (visit and saved.get('pending')):
+    if not migration and not new_visit and not changed and not (visit and saved.get('pending')):
         cards = old_cards
     else:
         pool = pool_for(root, document, profile, excluded, old_cards)
@@ -70,14 +75,19 @@ def publish(root, document, previous, profile, session, excluded, signature, pro
         current = canonical_stamps(pool['watched'], aliases)
         pending = any(at > observed.get(key, 0) for key, at in current.items())
         rotate = bool(visit and (new_visit or pending))
-        cards, exposure = select_lineup(pool, old_cards, saved.get('exposure', {}),
-                                        now_ms=int(time.time() * 1000), rotate=rotate)
+        # Apply the new policy once to a published shelf, including on scheduled refresh.
+        # An upgrade without a new viewing event preserves the profile's exposure ledger.
+        old_exposure = saved.get('exposure', {})
+        cards, exposure = select_lineup(pool, old_cards, old_exposure, now_ms=int(time.time() * 1000),
+                                        rotate=rotate or (migration and bool(old_cards)))
+        if not rotate:
+            exposure = old_exposure
         if visit or not saved:
             # Undo removes the vote from the pool. A late replay of its timestamp is not a new watch.
             for key, at in current.items():
                 observed[key] = max(observed.get(key, 0), at)
             pending = False
-        state = {'exposure': exposure, 'observed': observed, 'pending': pending,
+        state = {'version': LINEUP_VERSION, 'exposure': exposure, 'observed': observed, 'pending': pending,
                  'visits': (visits + [visit])[-256:] if new_visit else visits}
     profile['for_you'] = state
     profile['summary'] = dict(profile.get('summary', {}), for_you=coverage)
@@ -151,16 +161,19 @@ def preview(root, pid, visits, details=False):
     exposure = profile.get('for_you', {}).get('exposure', {})
     rows = []
     now = int(time.time() * 1000)
+    today = datetime.fromtimestamp(now / 1000, timezone.utc).date()
     for _ in range(visits):
         old = {key(c) for c in cards}
         cards, exposure = select_lineup(pool, cards, exposure, now_ms=now)
         lineup = [key(card) for card in cards]
-        row = {'size': len(lineup), 'arrivals': len(set(lineup) - old),
+        ages = [release_age_group(card, today) for card in cards]
+        row = {'recent': ages.count('recent'), 'front_recent': ages[:10].count('recent'),
+               'unknown_release': ages.count('unknown'), 'size': len(lineup), 'arrivals': len(set(lineup) - old),
                'front_arrivals': len(set(lineup[:10]) - old),
                'rewatches': sum(k in pool['watched'] for k in lineup)}
         if details:
             row['cards'] = [{'id': k, 'name': candidates[k]['meta']['name'],
-                             'interests': candidates[k]['interests'], 'sources': candidates[k]['sources']}
-                            for k in lineup]
+                             'age_group': age, 'interests': candidates[k]['interests'], 'sources': candidates[k]['sources']}
+                            for k, age in zip(lineup, ages)]
         rows.append(row)
     return {'matched': pool['matched'], 'distinct': pool['distinct'], 'candidates': len(candidates), 'visits': rows}

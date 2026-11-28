@@ -9,9 +9,10 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+from urllib.parse import urlsplit
 
 import discovery as d
-from for_you_rank import interest_shares
+from for_you_rank import catalog_premiere_date, catalog_start_year, interest_shares, premiere_window, recent_since
 from seasonal_provider import DAY, MoviePage, ProviderError, PublicProvider
 
 SEEDS_PER_BATCH = 4
@@ -88,6 +89,7 @@ class CatalogPage(MoviePage):
         self.pairs = {}
         self.section = 'movie' if kind == 'movie' else 'tv'
         self.page_depth = 0
+        self.cards_seen = False
         super().__init__(body)
 
     def handle_starttag(self, tag, attrs):
@@ -97,10 +99,12 @@ class CatalogPage(MoviePage):
                              re.fullmatch(r'page_\d+', values.get('id') or '')
                              and 'page_wrapper' in (values.get('class') or '').split()):
             self.page_depth += 1
+        if tag == 'div' and values.get('data-object-id'):
+            self.cards_seen = True
         if tag == 'a' and self.page_depth:
-            match = re.fullmatch(r'/' + self.section + r'/([1-9][0-9]{0,11})(?:-[^/?#]*)?/?',
-                                 values.get('href') or '')
-            if match:
+            link = urlsplit(values.get('href') or '')
+            match = re.fullmatch(r'/' + self.section + r'/([1-9][0-9]{0,11})(?:-[^/]+)?/?', link.path)
+            if match and not link.netloc and not link.scheme:
                 self.pairs['tmdb:' + match[1]] = None
 
     def handle_endtag(self, tag):
@@ -151,28 +155,40 @@ class Provider:
         method = d.tmdb_related if basis == 'tmdb' else d.related
         return method(self.root, seed)
 
-    def catalog(self, kind, genre, country, page):
+    def catalog(self, kind, genre, country, page, recent=False):
         tv_genre = d.SERIES_GENRES.get(genre, genre) if kind == 'series' else genre
-        if genre and not country:
+        if genre and not country and not recent:
             chart = 'popular-movies' if kind == 'movie' else 'popular-series'
             return d.catalog(self.root, kind, chart, tv_genre, skip=(page - 1) * 20)
         # Worldwide catalog and verified country/genre interests. No release region or language filter.
         section = 'movie' if kind == 'movie' else 'tv'
         date_field = 'primary_release_date' if kind == 'movie' else 'first_air_date'
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(timezone.utc).date()
         params = {'page': page, 'sort_by': date_field + '.desc', 'include_adult': 'false',
-                  date_field + '.lte': today, 'vote_count.gte': '10'}
+                  date_field + '.lte': today.isoformat(), 'vote_count.gte': '10'}
+        if recent:
+            params[date_field + '.gte'] = recent_since(today).isoformat()
+        if genre:
+            if tv_genre not in GENRE_IDS:
+                return []
+            params['with_genres'] = GENRE_IDS[tv_genre]
         if country:
             code = country_codes()[0].get(country.casefold())
-            if not code or tv_genre not in GENRE_IDS:
+            if not code:
                 return []
-            params.update(with_origin_country=code, with_genres=GENRE_IDS[tv_genre])
+            params['with_origin_country'] = code
         def parse(body):
             html = CatalogPage(body, kind)
-            if not html.feed_seen or html.page != page:
+            if not html.feed_seen or html.page != page or (html.cards_seen and not html.pairs):
                 raise ProviderError('invalid worldwide discovery page')
             return list(html.pairs)
-        ids = self.world.request(f'{d.TMDB}/discover/{section}/items', parse, DAY, params)
+        ids = self.world.request(f'{d.TMDB}/discover/{section}/items', parse, DAY, params,
+                                 cache_version='for-you-premieres-v1')
+        if recent:
+            # The visible date on a TMDB poster can be a later local release.
+            # Only the typed worldwide query proves these original premiere bounds.
+            window = [params[date_field + '.gte'], params[date_field + '.lte']]
+            return [(kind, uid, window) for uid in ids]
         return [(kind, uid) for uid in ids]
 
 
@@ -257,6 +273,25 @@ class Cache:
                                 ((basis, uid, payload, due) for uid in sorted(identifiers) if uid))
 
 
+def merge_previews(previous, preferred):
+    """Keep the preferred preview fields and the earliest original premiere evidence."""
+    merged = {**previous, **preferred}
+    if not previous or not preferred:
+        return merged
+    earlier = catalog_premiere_date(previous)
+    current = catalog_premiere_date(merged)
+    if earlier and (not current or earlier < current):
+        merged['released'] = earlier.isoformat() + 'T00:00:00.000Z'
+    current_year = catalog_start_year(merged)
+    for source in (previous, preferred):
+        year = catalog_start_year(source)
+        if year and (not current_year or year < current_year):
+            info = source.get('releaseInfo')
+            merged['releaseInfo'] = info if str(info).startswith(str(year)) else str(year)
+            current_year = year
+    return merged
+
+
 class Titles:
     """Resolve only typed identifier evidence. Keep public previews separate from private source evidence."""
     def __init__(self):
@@ -294,7 +329,7 @@ class Titles:
         if canonical != ident:
             card.update(id=imdb, moviedb_id=native[5:])
         old = self.cards.get(canonical, {})
-        self.cards[canonical] = {**old, **card}
+        self.cards[canonical] = merge_previews(old, card)
         self.countries[canonical].update(countries(origins))
 
     def card(self, ident):
@@ -314,7 +349,7 @@ class Titles:
                 continue
             if native in self.cards:
                 card = dict(self.cards.pop(native), id=imdb.split('/')[1], imdb_id=imdb.split('/')[1])
-                self.cards[imdb] = {**card, **self.cards.get(imdb, {})}
+                self.cards[imdb] = merge_previews(card, self.cards.get(imdb, {}))
                 self.countries[imdb].update(self.countries.pop(native, ()))
             if imdb in self.cards:
                 self.cards[imdb].setdefault('moviedb_id', native.split(':')[1])
@@ -347,7 +382,11 @@ def local_titles(root, titles, ids):
         except sqlite3.Error:
             pass
     index = directory / 'catalog.sqlite3'
-    missing = {titles.resolve(k) for k in ids if not titles.card(k) or not titles.card(k).get('genres')}
+    missing = set()
+    for ident in ids:
+        card = titles.card(ident) or {}
+        if not card.get('genres') or not (card.get('releaseInfo') or card.get('released')):
+            missing.add(titles.resolve(ident))
     wanted = {k for k in missing if '/tt' in k}
     if wanted and index.is_file():
         try:
@@ -357,6 +396,11 @@ def local_titles(root, titles, ids):
                                   'AND id IN (SELECT value FROM json_each(?))', (json.dumps(sorted(numbers)),))
                 for uid, kind, name, year, genres in rows:
                     if key(kind, uid) in wanted:
+                        card = titles.card(key(kind, uid))
+                        if card and card.get('genres'):
+                            if year:
+                                card['releaseInfo'] = str(year)
+                            continue
                         meta = {'id': uid, 'type': kind, 'name': name, 'genres': genres.split(',') if genres else []}
                         if year:
                             meta['releaseInfo'] = str(year)
@@ -434,14 +478,18 @@ def profile_evidence(titles, watches, excluded_ids, unwatched):
     return watched, seeds, omitted, votes, combos, {g: v / total for g, v in sorted(interests.items())}
 
 
-def catalog_specs(votes, combos):
+def catalog_specs(votes, combos, *, recent=False):
     subjects = [(genre, '') for genre in sorted(votes, key=lambda g: (-votes[g], g))] or [
         ('Drama', ''), ('Comedy', ''), ('Action', '')]
-    subjects = sorted(combos) + subjects + [('', '')]
-    return [(kind, genre, country, page) for page in range(1, PAGES + 1)
-            for genre, country in subjects for kind in ('movie', 'series')
+    if not recent:
+        subjects = sorted(combos) + subjects + [('', '')]
+    kinds = ('series', 'movie') if recent else ('movie', 'series')
+    specs = [(kind, genre, country, page) for page in range(1, PAGES + 1)
+            for genre, country in subjects for kind in kinds
             if not genre or (genre in d.MOVIE_GENRES if kind == 'movie'
                              else d.SERIES_GENRES.get(genre, genre) in d.TV_GENRES)]
+    # Retain existing cache keys for popular, worldwide and country/genre pages.
+    return [(*spec, True) for spec in specs] if recent else specs
 
 
 def related_keys(seed, card):
@@ -462,6 +510,10 @@ def page_entries(items):
                 result.append(card)
         elif isinstance(item, (tuple, list)) and len(item) == 2 and key(*item):
             result.append(key(*item))
+        elif isinstance(item, (tuple, list)) and len(item) == 3 and key(*item[:2]):
+            bounds = premiere_window(item[2])
+            if bounds:
+                result.append([key(*item[:2]), [day.isoformat() for day in bounds]])
     if items and not result:
         raise ProviderError('unrecognized public catalog entries')
     return result
@@ -485,15 +537,19 @@ def nominations(cache, titles, seeds, specs):
                 hits[ident].append({'seed': source_keys[lookup], 'basis': basis, 'rank': rank})
     slots = {json.dumps(spec): spec for spec in specs}
     for slot, items in cache.read('catalog', slots).items():
-        kind, genre, country, page = slots[slot]
-        basis = ' '.join(filter(None, ['Worldwide' if country or not genre else 'Popular', country, genre, kind]))
+        kind, genre, country, page, *recent = slots[slot]
+        source = 'Recent worldwide' if recent else 'Worldwide' if country or not genre else 'Popular'
+        basis = ' '.join(filter(None, [source, country, genre, kind]))
         for rank, item in enumerate(items, (page - 1) * 20 + 1):
+            reason = {'seed': None, 'basis': basis, 'rank': rank}
             if isinstance(item, dict):
                 titles.add(item)
                 ident = key(item['type'], item['id'])
+            elif isinstance(item, list):
+                ident, reason['premiere_window'] = item
             else:
                 ident = item
-            hits[ident].append({'seed': None, 'basis': basis, 'rank': rank})
+            hits[ident].append(reason)
     return hits
 
 
@@ -551,6 +607,11 @@ def assemble(titles, watches, excluded_ids, hits, fallback, progress, cursor, un
         signals = sorted(genres)
         signals += sorted(c + ' / ' + g for g in genres for c in titles.countries[ident] if (g, c) in combos)
         reasons = list(all_hits.get(ident, {}).values())
+        windows = [r['premiere_window'] for r in reasons if 'premiere_window' in r]
+        if windows:
+            bounds = [max(w[0] for w in windows), min(w[1] for w in windows)]
+            if bounds[0] <= bounds[1]:
+                card = dict(card, mkbtvPremiereWindow=bounds)
         direct = {r['seed'] for r in reasons if r['seed'] and r['seed'] != ident}
         if not (signals or direct or ident in watched or not interests):
             continue
@@ -616,10 +677,15 @@ def prepare_pool(root, document, excluded_ids=(), *, cursor=None, background=Fal
                 for basis, lookup in related_keys(seed, card).items():
                     cache.refresh(basis, lookup, lambda: related_entries(provider.related(card, basis)))
         specs = catalog_specs(votes, combos)
+        recent_specs = catalog_specs(votes, combos, recent=True)
         if background:
-            for spec in cycle(specs, cursor, 'page', PAGES_PER_BATCH):
+            # Give new releases a turn on every pass, even for a profile with
+            # many distinct country/genre interests. The page budget stays fixed.
+            pages = cycle(recent_specs, cursor, 'recent_page', 1)
+            pages += cycle(specs, cursor, 'page', PAGES_PER_BATCH - len(pages))
+            for spec in pages:
                 cache.refresh('catalog', json.dumps(spec), lambda: page_entries(provider.catalog(*spec)), ttl=DAY)
-        hits = nominations(cache, titles, seeds, specs)
+        hits = nominations(cache, titles, seeds, specs + recent_specs)
         add_recent_relations(hits, titles, seeds, related_rows)
         load_cards(cache, titles, hits)
         if background:

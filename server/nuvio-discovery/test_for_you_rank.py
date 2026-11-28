@@ -2,8 +2,9 @@ import json
 import unittest
 from collections import Counter
 from copy import deepcopy
+from datetime import date, datetime, timezone
 
-from for_you_rank import DAY_MS, EXPOSURE_EVENTS, REWATCH_AGE_MS, select_lineup
+from for_you_rank import DAY_MS, EXPOSURE_EVENTS, REWATCH_AGE_MS, release_age_group, select_lineup
 
 
 NOW = 1_800_000_000_000
@@ -21,6 +22,83 @@ def ids(cards):
 
 
 class ForYouRankTests(unittest.TestCase):
+    def test_original_premiere_calendar_bounds_and_dated_worldwide_evidence(self):
+        today = date(2026, 11, 28)
+        cases = [
+            ({'released': '2024-11-27T00:00:00.000Z'}, 'older'),
+            ({'released': '2024-11-28T00:00:00.000Z'}, 'recent'),
+            ({'released': '2026-11-28'}, 'recent'),
+            ({'released': '2026-11-29'}, 'future'),
+            ({'releaseInfo': '2027–'}, 'future'),
+            ({'releaseInfo': 2025}, 'recent'),
+            ({'releaseInfo': '2006–2026', 'released': '2026-07-01'}, 'older'),
+            ({'releaseInfo': '2024–', 'released': 'bad date'}, 'unknown'),
+            ({'releaseInfo': 2026}, 'unknown'),
+            ({'releaseInfo': 2026, 'mkbtvPremiereWindow': ['2024-11-28', '2026-11-25']}, 'recent'),
+            ({'releaseInfo': 2026, 'released': '2026-12-23',
+              'mkbtvPremiereWindow': ['2024-11-28', '2026-11-25']}, 'recent'),
+            ({'releaseInfo': 1994, 'mkbtvPremiereWindow': ['2024-11-28', '2026-11-25']}, 'older'),
+            ({'mkbtvPremiereWindow': ['2022-01-01', '2024-01-01']}, 'older'),
+            ({'mkbtvPremiereWindow': ['2023-05-01', '2025-05-01']}, 'unknown'),
+            ({'mkbtvPremiereWindow': ['2026-01-01', 'malformed']}, 'unknown'),
+            ({}, 'unknown'),
+            ({'released': '2027'}, 'future'),
+            ({'year': '2011 – present'}, 'older'),
+            ({'first_air_date': '2025'}, 'recent')]
+        for fields, group in cases:
+            with self.subTest(fields=fields):
+                self.assertEqual(release_age_group({'type': 'series', **fields}, today), group)
+        self.assertEqual(release_age_group({'released': '2022-02-28'}, date(2024, 2, 29)), 'recent')
+        self.assertEqual(release_age_group({'releaseInfo': '2024'}, date(2026, 1, 1)), 'recent')
+        self.assertEqual(release_age_group({'releaseInfo': '2026'}, date(2026, 12, 31)), 'recent')
+        entries = [item(n, **fields) for n, (fields, _) in enumerate(cases)]
+        at = int(datetime(2026, 11, 28, tzinfo=timezone.utc).timestamp() * 1000)
+        cards, _ = select_lineup({'candidates': entries}, [c['meta'] for c in entries], {}, now_ms=at, rotate=False)
+        self.assertEqual({c['id'] for c in cards}, {f'tt{i}' for i, (_, age) in enumerate(cases)
+                                                   if age != 'future' and i != 8})
+
+    def test_release_mix_over_visits_preserves_quality_niches_and_rotation(self):
+        today = datetime.fromtimestamp(NOW / 1000, timezone.utc).date()
+        weights = {'Drama': .70, 'Comedy': .25, 'Science Fiction': .0325, KOREAN_SF: .0175}
+        entries = []
+        for genre, count in (('Drama', 180), ('Comedy', 90), ('Science Fiction', 55)):
+            for i in range(count):
+                tags = [genre, KOREAN_SF] if genre == 'Science Fiction' else [genre]
+                # Dates and media types vary independently. New seasons use the series start year.
+                entries.append(item(len(entries), tags, 1.25 + (i % 5) / 4,
+                                    type='series' if i % 3 else 'movie',
+                                    releaseInfo='2026–' if i % 4 == 0 else '2017–2027',
+                                    released='2026-12-05' if i % 4 == 0 else '2017-04-20'))
+        weak = [item(600 + i, ['Drama'], .1, released='2027-01-01') for i in range(80)]
+        pool = {'candidates': entries + weak, 'interests': weights}
+        by_id = {e['meta']['id']: e for e in entries}
+        previous, state, totals, featured = [], {}, Counter(), Counter()
+        media = set()
+        for tick in range(30):
+            cards, state = select_lineup(pool, previous, state, now_ms=NOW + tick)
+            if previous:
+                self.assertEqual(len(set(ids(cards)) - set(ids(previous))), 30)
+                self.assertTrue(set(ids(cards[:10])).isdisjoint(ids(previous)))
+            self.assertTrue(all(c['id'] in by_id for c in cards))
+            for pos, card in enumerate(cards):
+                age = release_age_group(card, today)
+                totals[age] += 1
+                media.add((age, card['type']))
+                if pos < 10:
+                    featured[age] += 1
+                    featured[by_id[card['id']]['interests'][0]] += 1
+            previous = cards
+        self.assertAlmostEqual(totals['recent'], .20 * 1800, delta=22)
+        self.assertAlmostEqual(featured['recent'], .20 * 300, delta=10)
+        self.assertAlmostEqual(featured['Science Fiction'], .05 * 300, delta=5)
+        self.assertEqual(media, {(age, kind) for age in ('older', 'recent') for kind in ('movie', 'series')})
+
+    def test_age_shortage_can_fill_entire_row_with_one_generation(self):
+        for year in (2000, 2026):
+            entries = [item(i, releaseInfo=year, released=f'{year}-01-15') for i in range(90)]
+            cards, _ = select_lineup({'candidates': entries}, [], {}, now_ms=NOW)
+            self.assertEqual(len(cards), 60)
+
     def test_thirty_events_turn_over_half_with_calibrated_front_and_variety_at_depth(self):
         pool = {'interests': {'Drama': 0.67, 'Comedy': 0.27, 'Science Fiction': 0.053, KOREAN_SF: 0.007}}
         candidates = []

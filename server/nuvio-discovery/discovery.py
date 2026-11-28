@@ -28,6 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+from for_you_rank import catalog_premiere_date, catalog_start_year, premiere_window
 from poster_art import PosterArt, TITLE_ID
 
 # Companion modules use the same provider and error types when this file is the CLI.
@@ -159,6 +160,19 @@ def safe_meta(meta):
     keys = ('id', 'type', 'name', 'poster', 'posterShape', 'background', 'logo', 'description',
             'releaseInfo', 'genres', 'imdbRating', 'released', 'runtime')
     preview = {key: meta[key] for key in keys if key in meta}
+    window = premiere_window(meta.get('mkbtvPremiereWindow'))
+    if window:
+        preview['mkbtvPremiereWindow'] = [day.isoformat() for day in window]
+    # Some public records use TMDB's typed premiere field instead of Stremio's released.
+    typed_date = meta.get('first_air_date' if meta['type'] == 'series' else 'release_date')
+    if typed_date:
+        day = catalog_premiere_date(meta)
+        if day:
+            preview['released'] = day.isoformat() + 'T00:00:00.000Z'
+    if not preview.get('releaseInfo') and (typed_date or meta.get('year')):
+        year = catalog_start_year(meta)
+        if year:
+            preview['releaseInfo'] = str(year)
     imdb = meta.get('imdb_id')
     if isinstance(imdb, str) and re.fullmatch(r'tt[0-9]{1,12}', imdb):
         preview['imdb_id'] = imdb
@@ -580,6 +594,7 @@ def live_history(document, previous, session):
 
 
 def update_profile(root, document, previous, session, excluded):
+    from for_you import LINEUP_VERSION, publish
     exported_count = len(document['watched'])
     live, snapshot = live_history(document, previous, session)
     watches = watched_unique(document)
@@ -602,7 +617,8 @@ def update_profile(root, document, previous, session, excluded):
     if new_session:
         genre_visit = session_id
     if session and not history_changed and not pending and previous.get('genre_source') == 'nuvio_trending':
-        if (session_id == previous.get('session') and session_id in taste.get('visits', []) and not taste.get('pending')
+        if (taste.get('version') == LINEUP_VERSION and session_id == previous.get('session')
+                and session_id in taste.get('visits', []) and not taste.get('pending')
                 and snapshot == previous.get('client_snapshot') and live == previous.get('live_watched')
                 and seasonal_history == previous.get('seasonal_history')
                 and seasonal_progress == previous.get('seasonal_progress')
@@ -631,7 +647,6 @@ def update_profile(root, document, previous, session, excluded):
             set_genre_rows(data, previous_genres, rotation)
         data.pop('recommendations_pending', None)
     data['for_you_unwatched'] = unwatched
-    from for_you import publish
     publish(root, document, previous, data, session, excluded, signature, seasonal_progress)
     changed = data['rows'] != previous.get('rows') or history_changed
     data.update(live_watched=live, client_snapshot=snapshot, history_signature=signature, session=session_id,

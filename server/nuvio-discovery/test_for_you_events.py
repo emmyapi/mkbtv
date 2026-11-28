@@ -296,6 +296,27 @@ class ForYouEventTests(unittest.TestCase):
         self.assertNotIn(watched['id'], self.row(profile=3))
         self.assertEqual(exposure_count(), exposed + 1)
 
+    def test_age_policy_upgrade_refreshes_once_without_counting_a_visit(self):
+        self.post('current-visit')
+        path = self.root / 'data' / 'catalogs.json'
+        for trigger in ('same visit', 'nightly'):
+            previous = self.row()
+            saved = json.loads(path.read_text())
+            taste = saved['profiles']['1']['for_you']
+            exposure = taste['exposure']
+            del taste['version']
+            discovery.atomic_json(path, saved)
+            if trigger == 'nightly':
+                self.nightly()
+            else:
+                self.post('current-visit')
+            updated = self.row()
+            self.assert_full_rotation(previous, updated)
+            self.assertEqual(json.loads(path.read_text())['profiles']['1']['for_you']['exposure'], exposure)
+            self.nightly()
+            self.post('current-visit')
+            self.assertEqual(self.row(), updated)
+
     def test_existing_catalog_without_for_you_state_upgrades_on_visit(self):
         path = self.root / 'data' / 'catalogs.json'
         published = json.loads(path.read_text())

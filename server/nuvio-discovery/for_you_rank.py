@@ -1,14 +1,97 @@
 """Pure per-profile selection for the For You catalog."""
 
+from calendar import monthrange
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from hashlib import blake2b
+import re
 
 ROW_SIZE = 60
 FRONT_SIZE = 10
 EXPOSURE_EVENTS = 30
 DAY_MS = 86_400_000
 REWATCH_AGE_MS = 180 * DAY_MS
+RECENT_SHARE = 0.20
+
+
+def recent_since(today):
+    year = today.year - 2
+    return today.replace(year=year, day=min(today.day, monthrange(year, today.month)[1]))
+
+
+def catalog_premiere_date(meta):
+    field = 'first_air_date' if meta.get('type') == 'series' else 'release_date'
+    dates = []
+    for value in (meta.get(field), meta.get('released'), meta.get('releaseInfo')):
+        try:
+            dates.append(date.fromisoformat(str(value)[:10]))
+        except ValueError:
+            pass
+    return min(dates, default=None)
+
+
+def catalog_start_year(meta):
+    field = 'first_air_date' if meta.get('type') == 'series' else 'release_date'
+    years = []
+    for value in (meta.get('releaseInfo'), meta.get('year'), meta.get('released'), meta.get(field)):
+        if value:
+            match = re.fullmatch(r'(\d{4})(?:\s*[-–—]\s*(?:\d{4}|present)?)?', str(value).strip(), re.I)
+            if match and int(match[1]):
+                years.append(int(match[1]))
+    return min(years, default=None)
+
+
+def _catalog_premiere(meta):
+    """A series range names the first year. A reissue cannot replace an earlier start year."""
+    year = catalog_start_year(meta)
+    premiered = catalog_premiere_date(meta)
+    if premiered and (not year or premiered.year <= year):
+        return premiered, premiered
+    if year:
+        return date(year, 1, 1), date(year, 12, 31)
+    return None, None
+
+
+def premiere_window(value):
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        try:
+            lower, upper = (date.fromisoformat(day) for day in value)
+        except (ValueError, TypeError):
+            return None
+        if lower <= upper:
+            return lower, upper
+    return None
+
+
+def _premiere_bounds(meta):
+    first, last = _catalog_premiere(meta)
+    window = premiere_window(meta.get('mkbtvPremiereWindow'))
+    if window:
+        lower, upper = window
+        if not first or first > upper:
+            # A local release may be scheduled after the worldwide premiere.
+            return lower, upper
+        if last >= lower:
+            return max(first, lower), min(last, upper)
+        # An earlier original year or exact date takes precedence over a reissue.
+    return first, last
+
+
+def _age_group(first, last, today, cutoff):
+    if first:
+        if first > today:
+            return 'future'
+        if last < cutoff:
+            return 'older'
+        if first >= cutoff and last <= today:
+            return 'recent'
+    return 'unknown'
+
+
+def release_age_group(meta, today):
+    """Classify only when all possible premiere dates agree on the rolling window."""
+    return _age_group(*_premiere_bounds(meta), today, recent_since(today))
 
 
 @dataclass
@@ -19,6 +102,7 @@ class Candidate:
     interests: dict
     watched_at: int
     tie: bytes
+    release_age: str
 
 
 def interest_shares(tags):
@@ -75,6 +159,8 @@ def _index_pool(pool, previous_cards, now_ms):
     progress = {resolve(key) for key in pool.get('progress', [])}
     weights = pool.get('interests', {})
     uncertain = ambiguous.intersection(watched.keys() | progress)
+    today = datetime.fromtimestamp(now_ms / 1000, timezone.utc).date()
+    cutoff = recent_since(today)
     available = {}
     for item in candidates:
         meta = item['meta']
@@ -87,6 +173,10 @@ def _index_pool(pool, previous_cards, now_ms):
             continue
         if uncertain and any(kind + '/' + uid in uncertain for kind, uid in title_keys(meta)):
             continue
+        first, last = _premiere_bounds(meta)
+        # A bare current year can describe an announced film as easily as a released one.
+        if last and last > today:
+            continue
         strength = item['strength']
         prior = available.get(key)
         if prior and (prior.strength, prior.meta['id'].startswith('tt')) >= (strength, meta['id'].startswith('tt')):
@@ -94,7 +184,7 @@ def _index_pool(pool, previous_cards, now_ms):
         shares = interest_shares(set(item['interests']).intersection(weights))
         # Stable ties must not group movies or series simply by their ID prefix.
         tie = blake2b(key.encode(), digest_size=8).digest()
-        available[key] = Candidate(key, meta, strength, shares, watched_at, tie)
+        available[key] = Candidate(key, meta, strength, shares, watched_at, tie, _age_group(first, last, today, cutoff))
 
     # The mixed Android shelf deduplicates by raw display ID across media types.
     # Prefer a verified IMDb ID for a native collision; otherwise keep one card.
@@ -208,19 +298,21 @@ def select_lineup(pool, previous_cards, state, *, now_ms, rotate=True):
     picks = []
     left = available.copy()
     new_count = known_count = 0
+    recent_count = 0
 
     def allowed(card):
         cap = min(rewatch_cap, 1) if len(picks) < FRONT_SIZE else rewatch_cap
         return not card.watched_at or known_count < cap
 
     def append(card):
-        nonlocal new_count, known_count
+        nonlocal new_count, known_count, recent_count
         region = int(len(picks) >= FRONT_SIZE)
         counts[region].update(card.interests)
         picks.append(card)
         del left[card.key]
         new_count += card.key not in old
         known_count += bool(card.watched_at)
+        recent_count += card.release_age == 'recent'
 
     if not rotate:
         for key in previous:
@@ -242,11 +334,18 @@ def select_lineup(pool, previous_cards, state, *, now_ms, rotate=True):
         seek_new = new_count < fresh_due
         deficits = _deficits(weights, counts[int(not front)])
         unmatched = min(deficits.values(), default=0) - 1
+        # Nudge comparable matches toward one recent premiere in five, including
+        # at the front. A shortage never creates an unbounded debt to either age.
+        age_bias = max(-1.0, min(1.0, (position + 1) * RECENT_SHARE - recent_count - 0.5))
 
         def priority(card):
             balance = (sum(deficits[tag] * share for tag, share in card.interests.items())
                        if card.interests else unmatched)
             score = balance + utility[card.key]
+            if card.release_age == 'recent':
+                score += age_bias
+            elif card.release_age == 'older':
+                score -= age_bias
             return (card.strength >= quality_floor, (card.key not in old) == seek_new,
                     not front or card.key not in recent_front, card.key not in reserve, score, card.tie)
 

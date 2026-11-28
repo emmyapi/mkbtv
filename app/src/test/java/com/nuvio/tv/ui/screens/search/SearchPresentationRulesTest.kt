@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.search
 
 import com.nuvio.tv.data.mapper.toDomainOrNull
+import com.nuvio.tv.ui.components.showsCardBadge
 import com.nuvio.tv.data.remote.dto.MetaPreviewDto
 import com.nuvio.tv.data.repository.MovieRelease
 import com.nuvio.tv.domain.model.DiscoverLocation
@@ -11,6 +12,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchPresentationRulesTest {
+
+    @Test
+    fun `series search badge is independent of the movie release filter`() {
+        fun show(type: String, movies: Boolean = false, series: Boolean = true) =
+            requireNotNull(MetaPreviewDto(id = "id", name = "Title").toDomainOrNull(type)).showsCardBadge(movies, series)
+        assertTrue(show("series"))
+        assertTrue(show("tv"))
+        assertFalse(show("series", movies = true, series = false))
+        assertFalse(show("movie"))
+        assertTrue(show("movie", movies = true))
+        assertFalse(show("channel", movies = true))
+    }
 
     @Test
     fun `movie poster matches normal search evidence and the active Discover page`() {

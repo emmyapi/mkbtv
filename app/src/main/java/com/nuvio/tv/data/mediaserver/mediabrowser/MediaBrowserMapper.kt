@@ -39,6 +39,8 @@ internal class MediaBrowserMapper(
             releaseInfo = item.productionYear?.toString(),
             imdbRating = item.communityRating?.formatRating(),
             genres = item.genres,
+            status = item.status.takeIf { kind == ServerMediaKind.SERIES },
+            ageRating = item.officialRating.takeIf { kind == ServerMediaKind.SERIES },
             released = item.premiereDate?.take(10)
         )
     }

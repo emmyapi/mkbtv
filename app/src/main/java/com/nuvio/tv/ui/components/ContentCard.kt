@@ -109,6 +109,8 @@ fun ContentCard(
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     movieRelease: MovieRelease? = null,
     showMovieRelease: Boolean = movieRelease != null,
+    resolveSeriesBadge: (suspend (MetaPreview) -> MetaPreview?)? = null,
+    showSeriesBadge: Boolean = resolveSeriesBadge != null,
     isWatched: Boolean = false,
     onFocus: (MetaPreview) -> Unit = {},
     onBackdropExpandedChanged: ((Boolean) -> Unit)? = null,
@@ -117,7 +119,7 @@ fun ContentCard(
     onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
-    val hasMovieMetadata = showMovieRelease && item.type == ContentType.MOVIE
+    val hasCardBadge = item.showsCardBadge(showMovieRelease, showSeriesBadge)
     val nextReleaseDate = movieRelease.nextDateLabel()
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
@@ -656,7 +658,7 @@ fun ContentCard(
                 ) { expanded ->
                 if (expanded) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                    val ageRating = item.ageRating?.trim()?.takeIf { it.isNotBlank() && !hasMovieMetadata }
+                    val ageRating = item.ageRating?.trim()?.takeIf { it.isNotBlank() && !hasCardBadge }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         
@@ -741,7 +743,7 @@ fun ContentCard(
             }
             } // Box clipToBounds
         }
-        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, movieRelease)
+        if (hasCardBadge) CardAgeStatusBadge(item, movieRelease, resolveSeriesBadge)
         if (!showLabels && effectiveExpandEnabled) {
             Spacer(modifier = Modifier.height(9.dp))
         }

@@ -723,6 +723,7 @@ fun SearchScreen(
                                 } else {
                                     uiState.query
                                 },
+                                resolveSeriesBadge = viewModel::resolveSearchCard,
                                 movieRelease = if (uiState.movieReleasesEnabled) uiState::movieRelease else null,
                                 isItemWatched = { item ->
                                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)

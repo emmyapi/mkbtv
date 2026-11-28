@@ -53,7 +53,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.core.image.CustomPosterFallbackInterceptor
-import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -76,6 +75,8 @@ fun GridContentCard(
     imageCrossfade: Boolean = true,
     movieRelease: MovieRelease? = null,
     showMovieRelease: Boolean = movieRelease != null,
+    resolveSeriesBadge: (suspend (MetaPreview) -> MetaPreview?)? = null,
+    showSeriesBadge: Boolean = resolveSeriesBadge != null,
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
@@ -86,7 +87,7 @@ fun GridContentCard(
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
-    val hasMovieMetadata = showMovieRelease && item.type == ContentType.MOVIE
+    val hasCardBadge = item.showsCardBadge(showMovieRelease, showSeriesBadge)
     val nextReleaseDate = movieRelease.nextDateLabel()
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
@@ -391,7 +392,7 @@ fun GridContentCard(
                 )
             }
         }
-        if (hasMovieMetadata) CardAgeStatusBadge(item.ageRating, movieRelease)
+        if (hasCardBadge) CardAgeStatusBadge(item, movieRelease, resolveSeriesBadge)
     }
 }
 

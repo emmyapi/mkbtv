@@ -1,6 +1,9 @@
 package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.data.mapper.toDomain
+import com.nuvio.tv.data.remote.dto.MetaDto
+import com.nuvio.tv.domain.model.AddonResource
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
@@ -60,6 +63,63 @@ class NuvioCatalogArtworkTest {
         assertEquals(indexed.id, result.id)
         assertEquals(indexed.sourceAddonBaseUrl, result.sourceAddonBaseUrl)
         verify(exactly = 0) { metadata.getMeta(any(), any(), any()) }
+    }
+
+    private val series = suggestion.copy(id = "tt0903747", imdbId = null, type = ContentType.SERIES,
+        rawType = "series", name = "Breaking Bad", poster = "result.jpg")
+
+    @Test fun sparseSeriesPosterIsImmediateAndVisibleBadgeFillsFromDetailsOnce() = runTest {
+        val cachedPoster = series.copy(poster = "catalog.jpg")
+        artwork.record(catalogUrl, listOf(cachedPoster))
+        assertEquals("catalog.jpg", artwork.resolve(series)?.poster)
+        verify(exactly = 0) { metadata.getMeta(any(), any(), any()) }
+
+        val detail = MetaDto(series.id, "series", series.name, status = "Ended", ageRating = "TV-MA").toDomain()
+        every { metadata.getMeta(catalogUrl, "series", series.id) } returns flowOf(NetworkResult.Success(detail))
+        val result = requireNotNull(artwork.resolve(series.copy(type = ContentType.TV), fillSeriesBadge = true))
+        assertEquals("TV-MA", result.ageRating)
+        assertEquals("Ended", result.status)
+        assertEquals("catalog.jpg", result.poster)
+        artwork.record(catalogUrl, listOf(cachedPoster))
+        val partial = requireNotNull(artwork.resolve(series.copy(ageRating = "15"), fillSeriesBadge = true))
+        assertEquals("15", partial.ageRating)
+        assertEquals("Ended", partial.status)
+        verify(exactly = 1) { metadata.getMeta(any(), any(), any()) }
+    }
+
+    @Test fun blankDetailPosterStillSuppliesSeriesStatusAndKeepsOriginalPoster() = runTest {
+        val detail = MetaDto(series.id, "series", series.name, poster = " ", status = "Returning Series").toDomain()
+        every { metadata.getMeta(catalogUrl, "series", series.id) } returns flowOf(NetworkResult.Success(detail))
+        val result = requireNotNull(artwork.resolve(series, fillSeriesBadge = true))
+        assertEquals(series.poster, result.poster)
+        assertEquals("Returning Series", result.status)
+        assertNull(result.ageRating)
+        assertEquals(result, artwork.resolve(series, fillSeriesBadge = true))
+        verify(exactly = 1) { metadata.getMeta(any(), any(), any()) }
+    }
+
+    @Test fun completeSeriesCatalogBadgeNeedsNoDetailLookup() = runTest {
+        artwork.record(catalogUrl, listOf(series.copy(ageRating = "TV-Y", status = "Continuing")))
+        val result = requireNotNull(artwork.resolve(series, fillSeriesBadge = true))
+        assertEquals("TV-Y", result.ageRating)
+        assertEquals("Continuing", result.status)
+        verify(exactly = 0) { metadata.getMeta(any(), any(), any()) }
+    }
+
+    @Test fun sourceNativeSeriesIdGoesOnlyToItsOwnMetadataAddon() = runTest {
+        val source = "https://series.example"
+        val native = series.copy(id = "native:7", sourceAddonBaseUrl = source)
+        val ownAddon = mockk<Addon> {
+            every { id } returns "example.series"
+            every { enabled } returns true
+            every { baseUrl } returns source
+            every { resources } returns listOf(AddonResource("meta", listOf("series"), listOf("native:")))
+        }
+        every { addons.getInstalledAddons() } returns flowOf(listOf(addon, ownAddon))
+        val detail = MetaDto(native.id, "series", series.name, ageRating = "12").toDomain()
+        every { metadata.getMeta(source, "series", native.id) } returns flowOf(NetworkResult.Success(detail))
+        assertEquals("12", artwork.resolve(native, fillSeriesBadge = true)?.ageRating)
+        verify(exactly = 0) { metadata.getMeta(catalogUrl, any(), any()) }
     }
 
     @Test fun coldLookupUsesExactTypedIdAndDoesNotUseOtherAddonsOrWrongTitle() = runTest {

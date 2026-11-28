@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +26,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.data.repository.MovieRelease
+import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.theme.NuvioTheme
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -61,13 +65,35 @@ internal fun AgeStatusBadge(
     }
 }
 
+internal fun MetaPreview.showsCardBadge(movie: Boolean, series: Boolean): Boolean = when (type) {
+    ContentType.MOVIE -> movie
+    ContentType.SERIES, ContentType.TV -> series
+    else -> false
+}
+
 @Composable
-internal fun CardAgeStatusBadge(ageRating: String?, release: MovieRelease?) {
-    // Keep the row height stable while the visible movies' release dates arrive.
+internal fun CardAgeStatusBadge(
+    item: MetaPreview,
+    release: MovieRelease?,
+    resolveSeries: (suspend (MetaPreview) -> MetaPreview?)?
+) {
+    val movie = item.type == ContentType.MOVIE
+    // The lazy card owns its lookup. Leaving the viewport cancels the reader.
+    val details = if (!movie && resolveSeries != null && (item.ageRating.isNullOrBlank() || item.status.isNullOrBlank())) {
+        key(item.type, item.id, item.imdbId, item.sourceAddonBaseUrl, item.ageRating, item.status, resolveSeries) {
+            produceState<MetaPreview?>(null) { value = resolveSeries(item) }.value
+        }
+    } else null
+    val age = item.ageRating?.trim()?.takeIf { it.isNotEmpty() }
+        ?: if (movie) release?.ageRating else details?.ageRating
+    val status = if (movie) release.phaseLabel() else catalogStatusLabel(
+        item.status?.takeIf { it.isNotBlank() } ?: details?.status, isSeries = true
+    )
+    // Reserve height while visible cards are loading their metadata.
     Box(Modifier.padding(top = NuvioTheme.spacing.xs).heightIn(min = 22.dp)) {
         AgeStatusBadge(
-            ageRating = ageRating?.trim()?.takeIf { it.isNotEmpty() } ?: release?.ageRating,
-            status = release.phaseLabel(),
+            ageRating = age,
+            status = status,
             textStyle = MaterialTheme.typography.labelSmall,
             compact = true
         )

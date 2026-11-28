@@ -286,6 +286,7 @@ fun CatalogSeeAllScreen(
                         }
                         val itemFocusKey = catalogItemFocusKey(item)
                         GridContentCard(
+                            resolveSeriesBadge = if (searchViewModel != null) searchViewModel::resolveSearchCard else null,
                             movieRelease = searchUiState?.value?.movieRelease(item),
                             showMovieRelease = searchUiState?.value?.movieReleasesEnabled == true,
                             item = item,

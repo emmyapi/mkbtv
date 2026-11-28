@@ -144,6 +144,7 @@ fun DiscoverScreen(
                 },
                 onLoadMore = { viewModel.onEvent(SearchEvent.LoadNextDiscoverResults) },
                 resolveArtwork = viewModel::resolveDiscoverArtwork,
+                resolveSeriesBadge = viewModel::resolveSearchCard,
                 onItemLongPress = { item, addonBaseUrl ->
                     viewModel.posterOptions.show(item, addonBaseUrl)
                 },

@@ -69,6 +69,8 @@ With the Discovery addon connected, **Movie release** appears in Search and Disc
 
 The TV displays regular search results immediately and requests release information separately, in batches. Discovery keeps the worldwide dates and available US age certificates in `movie-releases.sqlite3` in its state directory. A background worker looks up movies by ID, checking the exact title against TMDB's country release tables. It also prepares popular films in advance. The release filters include only confirmed matches, so a new search can gain results as the cache fills. In Discover, the match count and every results page use the same filter. With a watch-history filter active, posters use release information already in the shared cache.
 
+Series cards in Search, See All and Discover show the age rating on the left and the series status on the right, using the same labels as the detail page. Visible cards fill missing fields in the background. A card shows whichever fields its metadata provides.
+
 ## Long-term For You
 
 Each profile gets one **For You** row of up to 60 films and whole series. Discovery combines the complete verified account export with recent completions reported by the TV. Once IMDb and TMDB identifiers have been matched, each distinct watched work contributes one vote, split across its genres. Finishing several episodes of the same series gives it one vote. A newly completed episode can still refresh the suggestions.

@@ -124,6 +124,7 @@ internal fun DiscoverSection(
     onFilterEvent: (SearchEvent) -> Unit,
     onLoadMore: () -> Unit,
     resolveArtwork: suspend (MetaPreview) -> MetaPreview?,
+    resolveSeriesBadge: (suspend (MetaPreview) -> MetaPreview?)?,
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     voiceRequest: String? = null,
     onVoiceRequestHandled: () -> Unit = {},
@@ -446,6 +447,7 @@ internal fun DiscoverSection(
                     DiscoverGrid(
                         items = uiState.discoverResults,
                         resolveArtwork = resolveArtwork,
+                        resolveSeriesBadge = resolveSeriesBadge.takeIf { uiState.discoverWatch == DiscoverWatch.ANY },
                         movieRelease = if (uiState.movieReleasesEnabled) uiState::discoverMovieRelease else null,
                         requestMovieReleases = requestMovieReleases.takeIf {
                             uiState.movieReleasesEnabled && uiState.discoverWatch == DiscoverWatch.ANY
@@ -755,6 +757,7 @@ private data class DiscoverOption(
 internal fun DiscoverGrid(
     items: List<MetaPreview>,
     resolveArtwork: suspend (MetaPreview) -> MetaPreview?,
+    resolveSeriesBadge: (suspend (MetaPreview) -> MetaPreview?)?,
     posterPattern: String,
     showLabels: Boolean,
     posterCardStyle: PosterCardStyle,
@@ -967,6 +970,8 @@ internal fun DiscoverGrid(
                 item = displayItem,
                 movieRelease = movieRelease?.invoke(item),
                 showMovieRelease = movieRelease != null,
+                showSeriesBadge = true,
+                resolveSeriesBadge = resolveSeriesBadge,
                 indexPosterUrl = if (artwork != null) item.poster else null,
                 showLabel = showLabels,
                 onClick = {

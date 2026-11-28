@@ -1039,8 +1039,15 @@ class SearchViewModel @Inject constructor(
     private suspend fun searchAddons(): List<Addon> =
         addonRepository.getInstalledAddons().first().enabledAddons() + serverCatalog.searchAddons.first()
 
-    internal suspend fun resolveDiscoverArtwork(item: MetaPreview): MetaPreview? = try {
-        withTimeoutOrNull(6_000) { searchArtwork.resolve(item) }
+    internal suspend fun resolveSearchCard(item: MetaPreview): MetaPreview? =
+        resolveCard(item, fillSeriesBadge = true)
+
+    internal suspend fun resolveDiscoverArtwork(item: MetaPreview): MetaPreview? =
+        resolveCard(item, fillSeriesBadge = false)
+
+    private suspend fun resolveCard(item: MetaPreview, fillSeriesBadge: Boolean): MetaPreview? = try {
+        if (fillSeriesBadge) searchArtwork.resolve(item, fillSeriesBadge = true)
+        else withTimeoutOrNull(6_000) { searchArtwork.resolve(item) }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
